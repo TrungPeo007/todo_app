@@ -1,0 +1,28 @@
+class MyApp extends StatelessWidget {
+  Future<User?> _initializeFirebase() async {
+    // await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await Future.delayed(const Duration(seconds: 3)); // Delay 3 giây để hiển thị animation
+    return FirebaseAuth.instance.currentUser;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'My App',
+      theme: ThemeData.light(),
+      home: FutureBuilder<User?>(
+        future: _initializeFirebase(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const LoadingScreen();
+          } else if (snapshot.hasData) {
+            return AuthStateListener();
+          } else {
+            return AuthStateListener();
+          }
+        },
+      ),
+    );
+  }
+}

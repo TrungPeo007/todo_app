@@ -1,0 +1,24 @@
+[
+  {
+    "id": "task1",
+    "title": "Học bài toán",
+    "description": "Làm 10 bài tập toán lớp 5",
+    "dueDate": "2025-12-27T18:00:00",
+    "isCompleted": false,
+    "status": "pending",
+    "createdBy": "parent1",
+    "assignedTo": "child1",
+    "proofUrl": null
+  },
+  {
+    "id": "task2",
+    "title": "Dọn phòng",
+    "description": "Dọn sạch phòng ngủ",
+    "dueDate": "2025-12-26T20:00:00",
+    "isCompleted": true,
+    "status": "verified",
+    "createdBy": "parent1",
+    "assignedTo": "child2",
+    "proofUrl": "assets/images/proof_room.jpg"
+  }
+]
