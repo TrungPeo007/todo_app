@@ -42,8 +42,4 @@ flutter:
     - assets/sounds/announcement-sound-effect-254037.mp3
     - assets/images/background1.jpg
     - assets/sounds/notification-sound-2-253324.mp3
-    - assets/loadingScence.json
-    - assets/data/notes.json
-    - assets/data/users.json
-    - assets/data/tasks.json
-
+  

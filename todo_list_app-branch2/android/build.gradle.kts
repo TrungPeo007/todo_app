@@ -1,10 +1,12 @@
 buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
     dependencies {
-        // Plugin Google Services để Firebase đọc file google-services.json
-        classpath 'com.google.gms:google-services:4.4.4'
+        classpath("com.google.gms:google-services:4.4.4")
     }
 }
-
 allprojects {
     repositories {
         google()

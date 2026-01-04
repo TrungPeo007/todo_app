@@ -1,45 +1,38 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import './Listeners/auth_listener.dart';
-// import '../firebase_options.dart';
-import './loading_screen.dart';
-import 'dart:async';
-// import './Service/background_service.dart';
-// import './Service//notification_service.dart';
 
-void main() async {
+// Đảm bảo đúng đường dẫn theo cấu trúc dự án của anh:
+import 'widgets/firebase_options.dart';
+
+import 'theme/app_theme.dart';
+import 'loading_screen.dart';
+import 'Listeners/auth_listener.dart'; // dùng chữ thường thống nhất
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // await NotificationService.init();
-  // await registerBackgroundTask();
-  runApp(MyApp());
+
+  // Chỉ khởi tạo nếu chưa có app nào
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(
+      name:"todoApp",
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
+
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  Future<User?> _initializeFirebase() async {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    await Future.delayed(const Duration(seconds: 3)); // Delay 3 giây để hiển thị animation
-    return FirebaseAuth.instance.currentUser;
-  }
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'My App',
-      theme: ThemeData.light(),
-      home: FutureBuilder<User?>(
-        future: _initializeFirebase(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const LoadingScreen();
-          } else if (snapshot.hasData) {
-            return AuthStateListener();
-          } else {
-            return AuthStateListener();
-          }
-        },
-      ),
+      title: 'TODO List App',
+      theme: AppTheme.lightTheme, // nếu anh có theme riêng
+      home: AuthStateListener(), // hoặc HomeScreen nếu anh muốn
     );
   }
 }

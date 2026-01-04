@@ -1,622 +1,743 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
-import '../Models/Task.dart';
-import '../db/db.dart';
-import 'screens/settings_screen/settings_screen.dart';
-import '../utils/image_picker_utils.dart';
-import 'screens/tasks_screen/tasks_screen.dart';
-import 'screens/calendar_screen/calendar_screen.dart';
-import 'screens/personal_screen/personal_screen.dart';
-import './Service/AudioService.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import './screens/acheivement_screen/acheivement_screen.dart';
-import '../Models/Experience.dart';
-import '../db/experienceDb.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:async';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:io';
+
+import 'screens/parent/parent_home_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-final databaseService = DatabaseService();
-
 class _HomeScreenState extends State<HomeScreen> {
-  List<Task> tasks = [];
-  File? _profileImage; // Biến lưu ảnh đại diện của người dùng
-  int _currentIndex = 0;
-  String _userName = "User";
-  final TextEditingController _nameController = TextEditingController();
-  StreamSubscription<DocumentSnapshot>? _experienceSubscription;
-  int currentXP = 0; // Kinh nghiệm hiện tại
-  int xpRequired = 100; // Kinh nghiệm yêu cầu để lên cấp
-  Experience? experience;
+  final User? currentUser = FirebaseAuth.instance.currentUser;
+  String? role;
+  String displayName = "Đang tải...";
+  String email = "Đang tải...";
+  int _selectedIndex = 0;
 
-  @override
-  void dispose() {
-    _experienceSubscription?.cancel();
-    super.dispose();
-  }
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
-    _loadTasks();
-    _loadUserName();
-    _loadUserExperience();
-    _setupExperienceListener();
+    _loadUserRoleAndName();
+    _logLogin(); // Ghi lượt truy cập
+  }
 
-    // Trì hoãn việc gọi checkDeadlineTask để đảm bảo context hợp lệ
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        checkDeadlineTask(context);
-      }
+  Future<void> _logLogin() async {
+    if (currentUser == null) return;
+    await FirebaseFirestore.instance.collection('logins').add({
+      'userUid': currentUser!.uid,
+      'timestamp': FieldValue.serverTimestamp(),
     });
-    _loadImageOnStartup();
   }
 
-  Future<void> _loadUserExperience() async {
-    final exp = await ExperienceDatabaseService()
-        .getExperienceByUserIdFromFirebase(
-          FirebaseAuth.instance.currentUser?.uid ?? "",
-        );
+  Future<void> _loadUserRoleAndName() async {
+    if (currentUser == null) return;
 
-    if (exp != null) {
-      setState(() {
-        experience = exp;
-        currentXP = exp.xpCurrent;
-        xpRequired = exp.xpRequired;
-      });
-    }
-  }
-
-  void _setupExperienceListener() {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) return;
-
-    _experienceSubscription = FirebaseFirestore.instance
+    final doc = await FirebaseFirestore.instance
         .collection('users')
-        .doc(userId)
-        .collection('experience')
-        .doc(userId)
-        .snapshots()
-        .listen((snapshot) {
-          if (snapshot.exists && mounted) {
-            setState(() {
-              experience = Experience.fromMap(snapshot.data()!);
-              currentXP = experience!.xpCurrent;
-              xpRequired = experience!.xpRequired;
-            });
-          }
-        });
-  }
+        .doc(currentUser!.uid)
+        .get();
 
-  void _loadUserName() {
-    final displayName = FirebaseAuth.instance.currentUser?.displayName;
-    if (displayName != null && displayName.isNotEmpty) {
+    if (doc.exists) {
       setState(() {
-        _userName = displayName;
+        role = doc['role'];
+        displayName = doc['displayName'] ?? currentUser!.email ?? "Bé yêu";
+        email = doc['email'] ?? currentUser!.email ?? "";
       });
-    }
-  }
-
-  Future<void> _showEditNameDialog() async {
-    _nameController.text = _userName; // Đặt giá trị hiện tại vào TextField
-    return showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Edit Name"),
-          content: TextField(
-            controller: _nameController,
-            decoration: const InputDecoration(hintText: "Enter your name"),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context); // Đóng hộp thoại
-              },
-              child: const Text("Cancel"),
-            ),
-            TextButton(
-              onPressed: () {
-                setState(() {
-                  _userName = _nameController.text; // Cập nhật tên mới
-                });
-                Navigator.pop(context); // Đóng hộp thoại
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _logout(BuildContext context) async {
-    try {
-      // Đăng xuất khỏi Firebase
-      await FirebaseAuth.instance.signOut();
-
-      // Đăng xuất khỏi Google Sign-In
-      await GoogleSignIn().signOut();
-
-      // Đóng Drawer trước khi chuyển màn hình
-      if (Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
-      }
-
-      // Đợi một chút trước khi điều hướng để tránh lỗi
-      Future.delayed(Duration(milliseconds: 300), () {
-        if (context.mounted) {
-          Navigator.pushReplacementNamed(context, '/login');
-        }
-      });
-    } catch (e) {
-      print("Logout error: $e");
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Đăng xuất thất bại!")));
-      }
-    }
-  }
-
-  Future<void> checkDeadlineTask(BuildContext context) async {
-    final db = await databaseService.database;
-    List<Task> taskListNearDeadLine = [];
-    DateTime today = DateTime.now();
-
-    List<Map<String, dynamic>> results = await db.query(
-      'tasks',
-      orderBy: 'startDate ASC',
-    );
-
-    for (Map<String, dynamic> result in results) {
-      if (result['endDate'] == null || result['endDate'].toString().isEmpty) {
-        continue;
-      }
-
-      DateTime endDate;
-      try {
-        endDate = DateTime.parse(result['endDate']);
-      } catch (e) {
-        continue;
-      }
-
-      int diffDays = endDate.difference(today).inDays;
-
-      if (diffDays <= 3 &&
-          diffDays >= 0 &&
-          result['isCompleted'] == 0 &&
-          result['userId'] == FirebaseAuth.instance.currentUser?.uid) {
-        taskListNearDeadLine.add(Task.fromMap(result));
-      }
-    }
-
-    bool isNotificationEnabled = await AudioService.getIsNotficationEnabled();
-
-    if (taskListNearDeadLine.isNotEmpty && isNotificationEnabled) {
-      print("🔔 Show dialog & play sound!");
-
-      // 🔊 Lấy âm lượng từ AudioService trước khi phát âm thanh
-      double volume = await AudioService.getVolume();
-      await AudioService.playNotification(
-        'sounds/announcement-sound-effect-254037.mp3',
-      );
-
-      // 🏆 Hiển thị Dialog sau khi UI đã dựng xong
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (context.mounted) {
-          showDialog(
-            context: context,
-            builder: (BuildContext context) {
-              return AlertDialog(
-                title: const Text("Upcoming Deadlines"),
-                content: Text(
-                  "You have ${taskListNearDeadLine.length} tasks near deadline!",
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () {
-                      AudioService.stopNotification(); // Dừng âm thanh khi đóng dialog
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text("OK"),
-                  ),
-                ],
-              );
-            },
-          );
-        }
-      });
-    }
-  }
-
-  Future<void> cleanOldCompletedTasks() async {
-    final db = await databaseService.database;
-
-    List<Map<String, dynamic>> results = await db.query(
-      'completed_tasks',
-      orderBy: 'date ASC',
-    );
-
-    if (results.length > 60) {
-      int deleteCount = results.length - 60;
-      for (int i = 0; i < deleteCount; i++) {
-        String dateToDelete = results[i]['date'];
-        await db.delete(
-          'completed_tasks',
-          where: 'date = ?',
-          whereArgs: [dateToDelete],
-        );
-        print("Deleted completed tasks for date: $dateToDelete");
-      }
-    }
-  }
-
-  void _loadTasks() async {
-    await cleanOldCompletedTasks(); // Xóa các ngày cũ nếu quá 60 ngày
-    List<Task> loadedTasks = await databaseService.getTasks();
-    setState(() {
-      tasks = loadedTasks;
-    });
-  }
-
-  void _addTask(Task newTask) async {
-    _loadTasks(); // Cập nhật lại danh sách tasks từ database
-  }
-
-  void _deleteTask(Task deletedTask) async {
-    await databaseService.deleteTask(deletedTask.id);
-
-    // Xóa task trực tiếp khỏi danh sách trước khi cập nhật database
-    setState(() {
-      tasks.removeWhere((task) => task.id == deletedTask.id);
-    });
-
-    _loadTasks(); // Cập nhật danh sách từ database
-  }
-
-  void _updateTask(Task updatedTask) async {
-    await databaseService.updateTask(updatedTask); // Lưu vào database
-    _loadTasks(); // Cập nhật lại danh sách từ database
-  }
-
-  void _pickImage() async {
-    File? pickedImage = await pickImage();
-    if (pickedImage != null) {
-      await deleteOldImage(); // Xóa ảnh cũ trước khi lưu ảnh mới
-      File savedImage = await saveImage(pickedImage);
-      await saveImagePath(savedImage.path);
-
+    } else {
       setState(() {
-        _profileImage = savedImage;
-      });
-    }
-  }
-
-  void _loadImageOnStartup() async {
-    File? savedImage = await loadSavedImage();
-    if (savedImage != null) {
-      setState(() {
-        _profileImage = savedImage;
+        role = 'child';
+        displayName = currentUser!.email ?? "Bé yêu";
+        email = currentUser!.email ?? "";
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    print(
-      "HomeScreen rebuild, currentIndex = $_currentIndex, tasks count = ${tasks.length}",
-    );
+    if (currentUser == null) {
+      return const Scaffold(body: Center(child: Text("Chưa đăng nhập")));
+    }
+
+    if (role == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (role == 'parent') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const ParentHomeScreen()),
+        );
+      });
+      return const Scaffold(body: Center(child: Text("Đang chuyển đến trang phụ huynh...")));
+    }
+
+    return _buildChildHome();
+  }
+
+  Widget _buildChildHome() {
+    final List<String> titles = ['Tổng quan', 'Việc được giao', 'Lịch cá nhân', 'Điểm thưởng'];
+
     return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text("Todo App"),
-        centerTitle: true,
-        backgroundColor: Colors.blueAccent,
-      ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            // 🖼️ Drawer Header với ảnh user
-            UserAccountsDrawerHeader(
-              decoration: const BoxDecoration(color: Colors.blueAccent),
-              accountName: GestureDetector(
-                onTap: _showEditNameDialog, // Cho phép người dùng sửa tên
-                child: Text(
-                  _userName, // Hiển thị tên người dùng
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              accountEmail: Text(
-                FirebaseAuth.instance.currentUser?.email ??
-                    "No email", // Hiển thị email của người dùng
-                style: const TextStyle(fontSize: 16),
-              ),
-              currentAccountPicture: GestureDetector(
-                onTap: _pickImage, // Nhấn để chọn ảnh mới
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundColor: Colors.white,
-                  backgroundImage:
-                      _profileImage != null
-                          ? FileImage(_profileImage!) as ImageProvider
-                          : const AssetImage("assets/images/background1.png"),
-                  child:
-                      _profileImage == null
-                          ? const Icon(
-                            Icons.camera_alt,
-                            size: 30,
-                            color: Colors.grey,
-                          )
-                          : null,
-                ),
-              ),
-            ),
-
-            // 💪 Thanh kinh nghiệm + Level
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 8.0,
-              ),
-              child: Card(
-                elevation: 3,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(
-                    children: [
-                      // Hiển thị Level
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            "Level ${experience?.level ?? 1}", // Sử dụng level từ experience
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue[800],
-                            ),
-                          ),
-                          Icon(Icons.star, color: Colors.amber),
-                        ],
-                      ),
-                      SizedBox(height: 8),
-                      // Thanh tiến trình XP
-                      Stack(
-                        children: [
-                          LinearProgressIndicator(
-                            value:
-                                (experience?.xpCurrent ?? 0) /
-                                (experience?.xpRequired ?? 100),
-                            minHeight: 20,
-                            backgroundColor: Colors.grey[200],
-                            color: Colors.lightBlueAccent,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          Positioned.fill(
-                            child: Center(
-                              child: Text(
-                                "${experience?.xpCurrent ?? 0}/${experience?.xpRequired ?? 100} XP",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  shadows: [
-                                    Shadow(
-                                      blurRadius: 2,
-                                      color: Colors.black,
-                                      offset: Offset(1, 1),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        "Next level in ${(experience?.xpRequired ?? 100) - (experience?.xpCurrent ?? 0)} XP",
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            // Các mục khác trong Drawer
-            ListTile(
-              leading: const Icon(
-                Icons.emoji_events,
-                size: 40,
-                color: Colors.amber,
-              ),
-              title: const Text("Achievements"),
-              subtitle: const Text(
-                "Your achievements description here! The hall for king of tasks",
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AchievementScreen(),
-                  ),
-                );
-              },
-            ),
-
-            // ⚙️ Settings
-            ListTile(
-              leading: const Icon(Icons.settings, color: Colors.black87),
-              title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(context); // Đóng Drawer trước
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SettingsScreen(),
-                  ),
-                );
-              },
-            ),
-
-            const Divider(),
-
-            // Các mục liên quan đến task
-            ListTile(
-              leading: const Icon(Icons.fireplace, color: Colors.red),
-              title: Text(
-                "Urgent Tasks: ${tasks.where((task) => task.type == 'Urgent' && task.isCompleted == false).length}",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-
-            ListTile(
-              leading: const Icon(Icons.bookmark, color: Colors.blue),
-              title: Text(
-                "Work Tasks: ${tasks.where((task) => task.type == 'Work' && task.isCompleted == false).length}",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-
-            ListTile(
-              leading: const Icon(Icons.home, color: Colors.green),
-              title: Text(
-                "Person Tasks: ${tasks.where((task) => task.type == 'Personal' && task.isCompleted == false).length}",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-
-            ListTile(
-              leading: const Icon(Icons.work, color: Colors.grey),
-              title: Text(
-                "Normal Tasks: ${tasks.where((task) => task.type == 'General' && task.isCompleted == false).length}",
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-
-            const Divider(),
-
-            ListTile(
-              leading: const Icon(Icons.exit_to_app, color: Colors.red),
-              title: const Text('Logout', style: TextStyle(color: Colors.red)),
-              onTap: () async {
-                await _logout(context);
-              },
-            ),
-          ],
+        title: Text(titles[_selectedIndex]),
+        backgroundColor: Colors.orange[400],
+        foregroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.menu_rounded),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
       ),
+      drawer: _buildDrawer(titles),
+      body: _buildChildBody(),
+    );
+  }
 
-      body: Stack(
+  Drawer _buildDrawer(List<String> titles) {
+    return Drawer(
+      child: Column(
         children: [
-          // Gradient Background
           Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+            height: 240,
+            color: Colors.white,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.orange, width: 4),
+                  ),
+                  child: const CircleAvatar(
+                    radius: 50,
+                    backgroundColor: Colors.white,
+                    child: Icon(Icons.child_care_rounded, size: 70, color: Colors.orange),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  displayName,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  email,
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
           ),
-
-          // Nội dung chính
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 500),
-            transitionBuilder: (Widget child, Animation<double> animation) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            child:
-                _currentIndex == 0
-                    ? TasksScreen(
-                      key: const ValueKey(0),
-                      tasks: tasks,
-                      onTaskDeleted: _deleteTask,
-                      onTaskAdded: _addTask,
-                      onTaskUpdated: _updateTask,
-                    )
-                    : _currentIndex == 1
-                    ? const CalendarScreen(key: ValueKey(1))
-                    : const PersonalScreen(key: ValueKey(2)),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                for (int i = 0; i < titles.length; i++)
+                  ListTile(
+                    leading: Icon(
+                      i == 0
+                          ? Icons.dashboard_rounded
+                          : i == 1
+                              ? Icons.task_alt_rounded
+                              : i == 2
+                                  ? Icons.calendar_month_rounded
+                                  : Icons.star_rounded,
+                      color: i == 0 || i == 1 ? Colors.orange : i == 2 ? Colors.green : Colors.amber,
+                      size: 28,
+                    ),
+                    title: Text(titles[i], style: const TextStyle(fontSize: 18)),
+                    selected: _selectedIndex == i,
+                    selectedTileColor: i == 0 || i == 1 ? Colors.orange[50] : i == 2 ? Colors.green[50] : Colors.amber[50],
+                    onTap: () {
+                      setState(() => _selectedIndex = i);
+                      Navigator.pop(context);
+                    },
+                  ),
+                const Divider(height: 40, thickness: 1, indent: 20, endIndent: 20),
+                ListTile(
+                  leading: const Icon(Icons.logout_rounded, color: Colors.red, size: 28),
+                  title: const Text("Đăng xuất", style: TextStyle(fontSize: 18, color: Colors.red)),
+                  onTap: () async {
+                    await FirebaseAuth.instance.signOut();
+                    if (context.mounted) {
+                      Navigator.pushReplacementNamed(context, '/login');
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
 
-      // 🔹 Bottom Navigation với hiệu ứng đẹp mắt
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
+  Widget _buildChildBody() {
+    switch (_selectedIndex) {
+      case 0:
+        return _buildChildOverview();
+      case 1:
+        return _buildTasksTab();
+      case 2:
+        return const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.event_note_rounded, size: 100, color: Colors.green),
+              SizedBox(height: 20),
+              Text("Lịch cá nhân\n(Sắp có nha bé yêu! 🗓️)", 
+                   textAlign: TextAlign.center, 
+                   style: TextStyle(fontSize: 20, color: Colors.grey)),
+            ],
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              spreadRadius: 2,
-              blurRadius: 10,
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
-          ),
-          child: BottomNavigationBar(
-            backgroundColor: Colors.white,
-            currentIndex: _currentIndex,
-            selectedItemColor: Colors.blueAccent,
-            unselectedItemColor: Colors.grey,
-            onTap: (index) {
-              setState(() {
-                _currentIndex = index;
-              });
+        );
+      case 3:
+        return _buildPointsTab();
+      default:
+        return const SizedBox();
+    }
+  }
+
+  // DASHBOARD ĐỘNG CHO BÉ - ĐÃ FIX LỖI xpRequired
+  Widget _buildChildOverview() {
+    final String uid = currentUser!.uid;
+
+    DateTime weekStart = DateTime.now().subtract(Duration(days: DateTime.now().weekday - 1));
+    Timestamp weekStartTimestamp = Timestamp.fromDate(weekStart);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Tổng quan tuần này bé ơi! 🌟", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.orange)),
+          const SizedBox(height: 20),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('tasks').where('assignedTo', isEqualTo: uid).snapshots(),
+            builder: (context, taskSnapshot) {
+              if (!taskSnapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              int totalTasks = taskSnapshot.data!.docs.length;
+              int completedTasks = taskSnapshot.data!.docs.where((doc) => doc['status'] == 'approved').length;
+              double completionRate = totalTasks > 0 ? (completedTasks / totalTasks * 100) : 0;
+
+              return Column(
+                children: [
+                  _childStatCard("Việc được giao", totalTasks.toString(), Icons.task_alt_rounded, Colors.orange),
+                  const SizedBox(height: 12),
+                  _childStatCard("Đã hoàn thành", completedTasks.toString(), Icons.celebration, Colors.green),
+                  const SizedBox(height: 12),
+                  _childStatCard("Tỷ lệ hoàn thành", "${completionRate.toStringAsFixed(0)}%", Icons.trending_up_rounded, Colors.blue),
+                ],
+              );
             },
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.task, size: 28),
-                label: 'Tasks',
+          ),
+          const SizedBox(height: 20),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('logins')
+                .where('userUid', isEqualTo: uid)
+                .where('timestamp', isGreaterThanOrEqualTo: weekStartTimestamp)
+                .snapshots(),
+            builder: (context, loginSnapshot) {
+              int loginCount = loginSnapshot.hasData ? loginSnapshot.data!.docs.length : 0;
+              return _childStatCard("Lượt truy cập tuần này", loginCount.toString(), Icons.login_rounded, Colors.purple);
+            },
+          ),
+          const SizedBox(height: 30),
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').doc(uid).collection('experience').doc(uid).snapshots(),
+            builder: (context, expSnapshot) {
+              if (!expSnapshot.hasData || !expSnapshot.data!.exists) {
+                return Card(
+                  elevation: 8,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  child: const Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text("Chưa có điểm thưởng nào! Làm việc tốt để nhận sao nhé bé 🌟", style: TextStyle(fontSize: 18)),
+                  ),
+                );
+              }
+              var data = expSnapshot.data!.data() as Map<String, dynamic>;
+              int level = data['level'] ?? 1;
+              int xpCurrent = data['xpCurrent'] ?? 0;
+              int xpRequired = data['xpRequired'] ?? 100; // FIX: Đúng tên biến
+
+              return Card(
+                elevation: 8,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      const Text("Điểm thưởng hiện tại", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange)),
+                      const SizedBox(height: 16),
+                      Text("Cấp độ $level", style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Colors.orange)),
+                      const SizedBox(height: 20),
+                      LinearProgressIndicator(
+                        value: xpCurrent / xpRequired,
+                        minHeight: 20,
+                        backgroundColor: Colors.grey[300],
+                        valueColor: const AlwaysStoppedAnimation(Colors.amber),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      const SizedBox(height: 12),
+                      Text("$xpCurrent / $xpRequired XP", style: const TextStyle(fontSize: 24)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _childStatCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ListTile(
+        leading: Icon(icon, size: 50, color: color),
+        title: Text(title, style: const TextStyle(fontSize: 16, color: Colors.black87)),
+        trailing: Text(value, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: color)),
+      ),
+    );
+  }
+
+  // Các phần còn lại giữ nguyên như file trước (TasksTab, PointsTab, button "Bằng chứng", upload, markAsDone...)
+  // (đã đầy đủ trong file này)
+
+  Widget _buildTasksTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('tasks')
+          .where('assignedTo', isEqualTo: currentUser!.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(child: Text("Ôi không! Có lỗi rồi 😢"));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.sentiment_satisfied_alt, size: 100, color: Colors.orange),
+                SizedBox(height: 20),
+                Text(
+                  "Chưa có việc nào hết!\nHỏi bố mẹ xem có việc gì làm không nhé! 😊",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
+        }
+
+        var docs = snapshot.data!.docs;
+        docs.sort((a, b) {
+          final aTime = (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp? ?? Timestamp.now();
+          final bTime = (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp? ?? Timestamp.now();
+          return bTime.compareTo(aTime);
+        });
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: docs.length,
+          itemBuilder: (context, index) {
+            var doc = docs[index];
+            var data = doc.data() as Map<String, dynamic>;
+            String taskId = doc.id;
+            String title = data['title'] ?? 'Việc vui';
+            String desc = data['description'] ?? '';
+            String status = data['status'] ?? 'pending';
+            int reward = data['rewardXP'] ?? 0;
+            Timestamp? dueTimestamp = data['dueDate'];
+            String dueDate = dueTimestamp != null
+                ? "Hạn: ${dueTimestamp.toDate().toLocal().day}/${dueTimestamp.toDate().toLocal().month}"
+                : "Không gấp lắm đâu!";
+
+            Color statusColor = Colors.orange;
+            String statusText = "Chưa làm xong";
+            IconData statusIcon = Icons.hourglass_bottom;
+
+            switch (status) {
+              case 'submitted':
+                statusColor = Colors.blue;
+                statusText = "Đã báo xong!";
+                statusIcon = Icons.check_circle_outline;
+                break;
+              case 'approved':
+                statusColor = Colors.green;
+                statusText = "Hoàn thành rồi! 🎉";
+                statusIcon = Icons.celebration;
+                break;
+              case 'rejected':
+                statusColor = Colors.red;
+                statusText = "Làm lại nhé!";
+                statusIcon = Icons.refresh;
+                break;
+            }
+
+            return Card(
+              elevation: 8,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              color: Colors.white,
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(20),
+                title: Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 12),
+                    Text(desc, style: const TextStyle(fontSize: 16)),
+                    const SizedBox(height: 12),
+                    Text(dueDate, style: const TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Icon(Icons.card_giftcard_rounded, color: Colors.orange, size: 28),
+                        const SizedBox(width: 8),
+                        Text("+$reward XP", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange)),
+                        const Spacer(),
+                        Row(
+                          children: [
+                            Icon(statusIcon, color: statusColor),
+                            const SizedBox(width: 8),
+                            Text(statusText, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ],
+                    ),
+                    if (status == 'pending' || status == 'rejected')
+                      Padding(
+                        padding: const EdgeInsets.only(top: 20),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
+                                label: const Text("Làm xong rồi!", style: TextStyle(fontSize: 15)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green[600],
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                                  elevation: 4,
+                                ),
+                                onPressed: () => _markAsDone(taskId),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.camera_alt_rounded, size: 20),
+                                label: const Text("Bằng chứng", style: TextStyle(fontSize: 15)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange[600],
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                                  elevation: 4,
+                                ),
+                                onPressed: () => _uploadEvidence(taskId),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.calendar_month, size: 28),
-                label: 'Calendar',
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _markAsDone(String taskId) async {
+    try {
+      await FirebaseFirestore.instance.collection('tasks').doc(taskId).update({
+        'status': 'submitted',
+        'submittedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Bé báo xong rồi! Chờ bố mẹ duyệt nhé 🌟")),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Ôi không, lỗi rồi: $e")),
+        );
+      }
+    }
+  }
+
+  void _showTaskDetail(String taskId, String title, String desc, String status, int reward) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.orange)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(desc, style: const TextStyle(fontSize: 17)),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  const Icon(Icons.card_giftcard_rounded, color: Colors.orange, size: 30),
+                  const SizedBox(width: 10),
+                  Text("Thưởng: +$reward XP", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange)),
+                ],
               ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.person, size: 28),
-                label: 'Personal',
-              ),
+              const SizedBox(height: 20),
+              _buildStatusText(status),
+              const SizedBox(height: 24),
+              if (status == 'pending' || status == 'rejected') ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 22),
+                    label: const Text("Làm xong rồi!", style: TextStyle(fontSize: 16)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[600],
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _markAsDone(taskId);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.camera_alt_rounded, size: 22),
+                    label: const Text("Nộp ảnh minh chứng", style: TextStyle(fontSize: 16)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange[600],
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _uploadEvidence(taskId);
+                    },
+                  ),
+                ),
+              ],
+              if (status == 'submitted')
+                const Text("Đã báo xong rồi! Chờ bố mẹ duyệt nhé 🥰", style: TextStyle(fontSize: 17, color: Colors.blue)),
+              if (status == 'approved')
+                const Text("Tuyệt vời! Bé giỏi quá! 🌟🎉", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green)),
+              if (status == 'rejected')
+                const Text("Ối, chưa đạt yêu cầu! Làm lại nhé bé yêu 💪", style: TextStyle(fontSize: 17, color: Colors.red)),
             ],
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Đóng", style: TextStyle(fontSize: 18, color: Colors.orange)),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildStatusText(String status) {
+    String text;
+    Color color = Colors.orange;
+    IconData icon = Icons.hourglass_bottom;
+
+    switch (status) {
+      case 'pending':
+        text = "Chưa làm xong";
+        color = Colors.orange;
+        icon = Icons.hourglass_bottom;
+        break;
+      case 'submitted':
+        text = "Đã báo xong, chờ duyệt";
+        color = Colors.blue;
+        icon = Icons.schedule;
+        break;
+      case 'approved':
+        text = "Hoàn thành rồi! 🎉";
+        color = Colors.green;
+        icon = Icons.celebration;
+        break;
+      case 'rejected':
+        text = "Làm lại nhé!";
+        color = Colors.red;
+        icon = Icons.refresh;
+        break;
+      default:
+        text = status;
+        color = Colors.grey;
+        icon = Icons.info;
+    }
+
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 30),
+        const SizedBox(width: 12),
+        Text(text, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+      ],
+    );
+  }
+
+  Future<void> _uploadEvidence(String taskId) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+
+    if (pickedFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bé chưa chọn ảnh nè 😅")));
+      return;
+    }
+
+    String path = pickedFile.path.toLowerCase();
+    if (!path.endsWith('.jpg') && !path.endsWith('.jpeg') && !path.endsWith('.png')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Chỉ được chọn ảnh .jpg hoặc .png thôi nha bé! 📸")),
+      );
+      return;
+    }
+
+    File file = File(pickedFile.path);
+    int fileSizeInBytes = await file.length();
+    if (fileSizeInBytes > 5 * 1024 * 1024) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Ảnh to quá rồi! Chọn ảnh nhỏ hơn 5MB nhé bé ❤️")),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đang gửi ảnh cho bố mẹ xem... 📤")));
+
+    try {
+      String fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+      Reference ref = FirebaseStorage.instance.ref().child('evidences/$taskId/$fileName');
+      await ref.putFile(file);
+      String url = await ref.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('tasks').doc(taskId).collection('evidences').add({
+        'url': url,
+        'uploadedBy': currentUser!.uid,
+        'uploadedAt': FieldValue.serverTimestamp(),
+      });
+
+      await FirebaseFirestore.instance.collection('tasks').doc(taskId).update({'status': 'submitted'});
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Gửi ảnh thành công rồi! Bé giỏi quá! 🌟")));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ôi không, lỗi rồi: $e")));
+      }
+    }
+  }
+
+  Widget _buildPointsTab() {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser!.uid)
+          .collection('experience')
+          .doc(currentUser!.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.star_border_rounded, size: 120, color: Colors.orange),
+                SizedBox(height: 24),
+                Text("Chưa có điểm nào hết!\nLàm việc tốt để nhận sao nhé bé! 🌟", 
+                     textAlign: TextAlign.center, 
+                     style: TextStyle(fontSize: 20, color: Colors.grey)),
+              ],
+            ),
+          );
+        }
+
+        var data = snapshot.data!.data() as Map<String, dynamic>;
+        int level = data['level'] ?? 1;
+        int xpCurrent = data['xpCurrent'] ?? 0;
+        int xpRequired = data['xpRequired'] ?? 100;
+
+        return Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Icon(Icons.star_rounded, size: 140, color: Colors.amber[300]),
+                  Icon(Icons.star_rounded, size: 100, color: Colors.amber),
+                  Icon(Icons.star_rounded, size: 60, color: Colors.white),
+                ],
+              ),
+              const SizedBox(height: 30),
+              Text("Cấp độ $level", style: const TextStyle(fontSize: 44, fontWeight: FontWeight.bold, color: Colors.orange)),
+              const SizedBox(height: 40),
+              LinearProgressIndicator(
+                value: xpCurrent / xpRequired,
+                minHeight: 30,
+                backgroundColor: Colors.grey[200],
+                valueColor: const AlwaysStoppedAnimation(Colors.orange),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                "$xpCurrent / $xpRequired XP",
+                style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Colors.orange),
+              ),
+              const SizedBox(height: 50),
+              const Text(
+                "Cố lên bé yêu! Hoàn thành việc để nhận thật nhiều sao nhé! 🌟✨",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20, color: Colors.black54),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
