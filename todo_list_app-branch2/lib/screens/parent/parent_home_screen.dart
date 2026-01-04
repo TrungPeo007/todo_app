@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 class ParentHomeScreen extends StatefulWidget {
   const ParentHomeScreen({super.key});
@@ -16,6 +17,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     'Tổng quan',
     'Quản lý con cái',
     'Giao việc',
+    'Quản lý phần thưởng',
     'Báo cáo thống kê',
     'Lịch & Nhắc hẹn',
     'Ghi chú',
@@ -24,10 +26,22 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final User? currentUser = FirebaseAuth.instance.currentUser;
 
-  // Xác nhận mật khẩu phụ huynh
+  @override
+  void initState() {
+    super.initState();
+    _logLogin();
+  }
+
+  Future<void> _logLogin() async {
+    if (currentUser == null) return;
+    await FirebaseFirestore.instance.collection('logins').add({
+      'userUid': currentUser!.uid,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<bool> _reauthenticateParent(BuildContext context) async {
     final passwordController = TextEditingController();
-    final currentUser = FirebaseAuth.instance.currentUser;
 
     if (currentUser == null) return false;
 
@@ -55,10 +69,10 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
             onPressed: () async {
               try {
                 final credential = EmailAuthProvider.credential(
-                  email: currentUser.email!,
+                  email: currentUser!.email!,
                   password: passwordController.text,
                 );
-                await currentUser.reauthenticateWithCredential(credential);
+                await currentUser!.reauthenticateWithCredential(credential);
                 Navigator.pop(context, true);
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -74,7 +88,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     return result == true;
   }
 
-  // GIAO VIỆC MỚI
   Future<void> _assignTask(BuildContext context, String parentUid) async {
     final childrenSnapshot = await FirebaseFirestore.instance
         .collection('users')
@@ -89,10 +102,12 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
       return;
     }
 
+    final rewardsSnapshot = await FirebaseFirestore.instance.collection('rewards').get();
+
     String? selectedChildUid;
+    String? selectedRewardId;
     final titleController = TextEditingController();
     final descController = TextEditingController();
-    final xpController = TextEditingController(text: "10");
     DateTime? dueDate;
 
     await showDialog(
@@ -113,9 +128,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                       child: Text(doc['displayName'] ?? 'Không tên'),
                     );
                   }).toList(),
-                  onChanged: (value) {
-                    setStateDialog(() => selectedChildUid = value);
-                  },
+                  onChanged: (value) => setStateDialog(() => selectedChildUid = value),
                 ),
                 const SizedBox(height: 15),
                 TextField(
@@ -129,10 +142,17 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                   maxLines: 3,
                 ),
                 const SizedBox(height: 10),
-                TextField(
-                  controller: xpController,
-                  decoration: const InputDecoration(labelText: "Thưởng XP"),
-                  keyboardType: TextInputType.number,
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: "Chọn phần thưởng"),
+                  hint: const Text("Không chọn (mặc định 10 XP)"),
+                  items: rewardsSnapshot.docs.map((doc) {
+                    var data = doc.data();
+                    return DropdownMenuItem(
+                      value: doc.id,
+                      child: Text("${data['name']} (${data['points']} XP)"),
+                    );
+                  }).toList(),
+                  onChanged: (value) => setStateDialog(() => selectedRewardId = value),
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -170,13 +190,22 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                   return;
                 }
 
+                int rewardXP = 10;
+                String? rewardId;
+                if (selectedRewardId != null) {
+                  final rewardDoc = await FirebaseFirestore.instance.collection('rewards').doc(selectedRewardId).get();
+                  rewardXP = rewardDoc['points'] ?? 10;
+                  rewardId = selectedRewardId;
+                }
+
                 try {
                   await FirebaseFirestore.instance.collection('tasks').add({
                     'title': titleController.text.trim(),
                     'description': descController.text.trim(),
                     'assignedTo': selectedChildUid,
                     'assignedBy': parentUid,
-                    'rewardXP': int.tryParse(xpController.text) ?? 10,
+                    'rewardXP': rewardXP,
+                    'rewardId': rewardId,
                     'status': 'pending',
                     'createdAt': FieldValue.serverTimestamp(),
                     'dueDate': dueDate != null ? Timestamp.fromDate(dueDate!) : null,
@@ -198,7 +227,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     );
   }
 
-  // Tạo tài khoản con
   Future<void> _createChildAccount(BuildContext context) async {
     final nameController = TextEditingController();
     final emailController = TextEditingController();
@@ -275,7 +303,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     );
   }
 
-  // Sửa thông tin con
   Future<void> _editChild(BuildContext context, String childUid, String currentName, String currentEmail) async {
     final nameController = TextEditingController(text: currentName);
     final emailController = TextEditingController(text: currentEmail);
@@ -335,7 +362,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     );
   }
 
-  // Xóa tài khoản con
   Future<void> _deleteChild(BuildContext context, String childUid, String childName) async {
     bool confirmed = await showDialog<bool>(
           context: context,
@@ -363,7 +389,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     }
   }
 
-  // Đăng xuất
   Future<void> _confirmLogout(BuildContext context) async {
     bool? confirm = await showDialog<bool>(
       context: context,
@@ -382,7 +407,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     }
   }
 
-  // Ghi chú
   Future<void> _addNote(String parentUid) async {
     final controller = TextEditingController();
     await showDialog(
@@ -422,7 +446,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     await FirebaseFirestore.instance.collection('notes').doc(noteId).delete();
   }
 
-  // Chi tiết task + duyệt minh chứng
   void _showTaskDetailForParent(BuildContext context, String taskId, Map<String, dynamic> taskData, String childName) {
     String title = taskData['title'] ?? '';
     String desc = taskData['description'] ?? '';
@@ -460,7 +483,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
 
               if (status == 'submitted') ...[
                 const SizedBox(height: 16),
-                const Text("Minh chứng từ con:", style: TextStyle(fontWeight: FontWeight.bold)),
+                const Text("Minh chứng từ con:", style: const TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
@@ -549,7 +572,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     );
   }
 
-  // Duyệt task - cộng XP + lên level
   Future<void> _approveTask(BuildContext context, String taskId, String childUid, int rewardXP) async {
     try {
       await FirebaseFirestore.instance.collection('tasks').doc(taskId).update({'status': 'approved'});
@@ -602,7 +624,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     }
   }
 
-  // Từ chối task
   Future<void> _rejectTask(BuildContext context, String taskId) async {
     try {
       await FirebaseFirestore.instance.collection('tasks').doc(taskId).update({'status': 'pending'});
@@ -619,160 +640,281 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (currentUser == null) return const Scaffold(body: Center(child: Text("Lỗi đăng nhập")));
-
+  Widget _buildRewardsManagement() {
     return Scaffold(
-      key: _scaffoldKey,
-      appBar: AppBar(
-        title: Text(_titles[_selectedIndex]),
+      floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.orange,
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.menu),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => _confirmLogout(context),
-          ),
-        ],
+        child: const Icon(Icons.add, color: Colors.white),
+        onPressed: () => _addOrEditReward(),
       ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: const BoxDecoration(color: Colors.orange),
-              child: StreamBuilder<DocumentSnapshot>(
-                stream: FirebaseFirestore.instance.collection('users').doc(currentUser!.uid).snapshots(),
-                builder: (context, snapshot) {
-                  final name = snapshot.data?['displayName'] ?? "Phụ huynh";
-                  return Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('rewards').orderBy('points', descending: true).snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return const Center(child: Text("Lỗi tải phần thưởng"));
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Text("Chưa có phần thưởng nào\nNhấn nút + để thêm", style: TextStyle(fontSize: 18, color: Colors.grey)),
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: snapshot.data!.docs.length,
+            itemBuilder: (context, index) {
+              var doc = snapshot.data!.docs[index];
+              var data = doc.data() as Map<String, dynamic>;
+              String rewardId = doc.id;
+              String name = data['name'] ?? 'Quà';
+              String desc = data['description'] ?? '';
+              int points = data['points'] ?? 10;
+
+              return Card(
+                elevation: 6,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(16),
+                  leading: const Icon(Icons.card_giftcard_rounded, size: 50, color: Colors.orange),
+                  title: Text(name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  subtitle: Text("$points XP\n$desc"),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const CircleAvatar(
-                        radius: 30,
-                        backgroundColor: Colors.white,
-                        child: Icon(Icons.person, size: 40, color: Colors.orange),
+                      IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.blue),
+                        onPressed: () => _addOrEditReward(rewardId: rewardId, initialData: data),
                       ),
-                      const SizedBox(height: 12),
-                      const Text("Xin chào,", style: TextStyle(color: Colors.white70, fontSize: 14)),
-                      const SizedBox(height: 4),
-                      Flexible(
-                        child: Text(
-                          name,
-                          style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => _deleteReward(rewardId),
                       ),
                     ],
-                  );
-                },
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.dashboard),
-              title: const Text("Tổng quan"),
-              selected: _selectedIndex == 0,
-              selectedTileColor: Colors.orange[100],
-              onTap: () {
-                setState(() => _selectedIndex = 0);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.child_care),
-              title: const Text("Quản lý con cái"),
-              selected: _selectedIndex == 1,
-              selectedTileColor: Colors.orange[100],
-              onTap: () {
-                setState(() => _selectedIndex = 1);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.assignment),
-              title: const Text("Giao việc"),
-              selected: _selectedIndex == 2,
-              selectedTileColor: Colors.orange[100],
-              onTap: () {
-                setState(() => _selectedIndex = 2);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.bar_chart),
-              title: const Text("Báo cáo thống kê"),
-              selected: _selectedIndex == 3,
-              selectedTileColor: Colors.orange[100],
-              onTap: () async {
-                final ok = await _reauthenticateParent(context);
-                if (ok) {
-                  setState(() => _selectedIndex = 3);
-                  Navigator.pop(context);
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.calendar_month),
-              title: const Text("Lịch & Nhắc hẹn"),
-              selected: _selectedIndex == 4,
-              selectedTileColor: Colors.orange[100],
-              onTap: () {
-                setState(() => _selectedIndex = 4);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.note_alt),
-              title: const Text("Ghi chú"),
-              selected: _selectedIndex == 5,
-              selectedTileColor: Colors.orange[100],
-              onTap: () {
-                setState(() => _selectedIndex = 5);
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
+                  ),
+                  onTap: () => _showRewardDetailForParent(name, desc, points),
+                ),
+              );
+            },
+          );
+        },
       ),
-      body: _buildBody(currentUser!.uid),
-      floatingActionButton: _selectedIndex == 2
-          ? FloatingActionButton(
-              backgroundColor: Colors.orange,
-              child: const Icon(Icons.add_task, color: Colors.white),
-              onPressed: () => _assignTask(context, currentUser!.uid),
-            )
-          : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
   }
 
-  Widget _buildBody(String parentUid) {
-    switch (_selectedIndex) {
-      case 0:
-        return _buildOverview();
-      case 1:
-        return _buildChildrenManagement(parentUid);
-      case 2:
-        return _buildAssignTaskScreen(parentUid);
-      case 3:
-        return const Center(child: Text("Báo cáo thống kê chi tiết\n(Đã xác thực mật khẩu)", style: TextStyle(fontSize: 18)));
-      case 4:
-        return const Center(child: Text("Quản lý lịch và nhắc hẹn\n(Sắp có)", style: TextStyle(fontSize: 18)));
-      case 5:
-        return _buildNotesScreen(parentUid);
-      default:
-        return const SizedBox();
-    }
+  Future<void> _addOrEditReward({String? rewardId, Map<String, dynamic>? initialData}) async {
+    final nameController = TextEditingController(text: initialData?['name'] ?? '');
+    final descController = TextEditingController(text: initialData?['description'] ?? '');
+    final pointsController = TextEditingController(text: initialData?['points']?.toString() ?? '10');
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(rewardId == null ? "Thêm phần thưởng mới" : "Chỉnh sửa phần thưởng"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: "Tên phần thưởng (bắt buộc)"),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(labelText: "Mô tả chi tiết"),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: pointsController,
+                decoration: const InputDecoration(labelText: "Điểm cần đổi (10-100)"),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Hủy")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () async {
+              String name = nameController.text.trim();
+              String desc = descController.text.trim();
+              int? points = int.tryParse(pointsController.text);
+
+              if (name.isEmpty || points == null || points < 10 || points > 100) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Kiểm tra lại tên và điểm (10-100)")),
+                );
+                return;
+              }
+
+              if (rewardId == null) {
+                await FirebaseFirestore.instance.collection('rewards').add({
+                  'name': name,
+                  'description': desc,
+                  'points': points,
+                });
+              } else {
+                await FirebaseFirestore.instance.collection('rewards').doc(rewardId).update({
+                  'name': name,
+                  'description': desc,
+                  'points': points,
+                });
+              }
+
+              Navigator.pop(context);
+              String message = rewardId == null ? "Thêm thành công!" : "Cập nhật thành công!";
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(message)),
+              );
+            },
+            child: Text(rewardId == null ? "Thêm" : "Lưu"),
+          ),
+        ],
+      ),
+    );
   }
 
-  // Danh sách việc đã giao - SIÊU MƯỢT
+  void _showRewardDetailForParent(String name, String desc, int points) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.orange)),
+        content: Text(desc, style: const TextStyle(fontSize: 18)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Đóng")),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteReward(String rewardId) async {
+    await FirebaseFirestore.instance.collection('rewards').doc(rewardId).delete();
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã xóa phần thưởng")));
+  }
+
+  Widget _buildOverview() {
+    final String parentUid = currentUser!.uid;
+
+    DateTime weekStart = DateTime.now().subtract(Duration(days: DateTime.now().weekday - 1));
+    Timestamp weekStartTimestamp = Timestamp.fromDate(weekStart);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Tổng quan tuần này", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.orange)),
+          const SizedBox(height: 20),
+          FutureBuilder<QuerySnapshot>(
+            future: FirebaseFirestore.instance
+                .collection('users')
+                .where('parentUid', isEqualTo: parentUid)
+                .where('role', isEqualTo: 'child')
+                .get(),
+            builder: (context, childrenSnapshot) {
+              int childCount = childrenSnapshot.hasData ? childrenSnapshot.data!.docs.length : 0;
+              return _statCard("Số con", childCount.toString(), Icons.child_care, Colors.blue);
+            },
+          ),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('tasks').where('assignedBy', isEqualTo: parentUid).snapshots(),
+            builder: (context, taskSnapshot) {
+              if (!taskSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+
+              int totalTasks = taskSnapshot.data!.docs.length;
+              int completedTasks = taskSnapshot.data!.docs.where((doc) => doc['status'] == 'approved').length;
+              double completionRate = totalTasks > 0 ? (completedTasks / totalTasks * 100) : 0;
+
+              return Column(
+                children: [
+                  const SizedBox(height: 12),
+                  _statCard("Việc đã giao", totalTasks.toString(), Icons.assignment, Colors.green),
+                  const SizedBox(height: 12),
+                  _statCard("Hoàn thành", completedTasks.toString(), Icons.check_circle, Colors.orange),
+                  const SizedBox(height: 12),
+                  _statCard("Tỷ lệ hoàn thành", "${completionRate.toStringAsFixed(0)}%", Icons.trending_up, Colors.purple),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('logins')
+                .where('timestamp', isGreaterThanOrEqualTo: weekStartTimestamp)
+                .snapshots(),
+            builder: (context, loginSnapshot) {
+              return FutureBuilder<List<String>>(
+                future: FirebaseFirestore.instance
+                    .collection('users')
+                    .where('parentUid', isEqualTo: parentUid)
+                    .where('role', isEqualTo: 'child')
+                    .get()
+                    .then((snap) => snap.docs.map((doc) => doc.id).toList()),
+                builder: (context, childUidsSnapshot) {
+                  List<String> childUids = childUidsSnapshot.data ?? [];
+
+                  int loginCount = 0;
+                  if (loginSnapshot.hasData) {
+                    for (var doc in loginSnapshot.data!.docs) {
+                      String uid = doc['userUid'];
+                      if (uid == parentUid || childUids.contains(uid)) {
+                        loginCount++;
+                      }
+                    }
+                  }
+
+                  return _statCard("Lượt truy cập tuần này", loginCount.toString(), Icons.login, Colors.purple);
+                },
+              );
+            },
+          ),
+          const SizedBox(height: 30),
+          const Text("Hoạt động gần đây", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange)),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('tasks')
+                .where('assignedBy', isEqualTo: parentUid)
+                .orderBy('createdAt', descending: true)
+                .limit(5)
+                .snapshots(),
+            builder: (context, recentSnapshot) {
+              if (!recentSnapshot.hasData || recentSnapshot.data!.docs.isEmpty) {
+                return const Text("Chưa có hoạt động nào", style: TextStyle(fontSize: 16));
+              }
+
+              return Column(
+                children: recentSnapshot.data!.docs.map((doc) {
+                  var data = doc.data() as Map<String, dynamic>;
+                  String title = data['title'] ?? 'Việc không tên';
+                  String status = data['status'] ?? 'pending';
+                  String statusText = status == 'approved' ? 'Hoàn thành' : status == 'submitted' ? 'Đã nộp' : 'Chưa làm';
+                  return ListTile(
+                    leading: const Icon(Icons.circle, size: 10, color: Colors.orange),
+                    title: Text(title),
+                    subtitle: Text("Trạng thái: $statusText"),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ListTile(
+        leading: Icon(icon, size: 50, color: color),
+        title: Text(title, style: const TextStyle(fontSize: 18)),
+        trailing: Text(value, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: color)),
+      ),
+    );
+  }
+
   Widget _buildAssignTaskScreen(String parentUid) {
     return Column(
       children: [
@@ -907,78 +1049,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     );
   }
 
-  // Tổng quan
-  Widget _buildOverview() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("Tổng quan tuần này", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 20),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.login, color: Colors.orange, size: 40),
-              title: const Text("Lượt truy cập tuần này", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              subtitle: const Text("7 lần", style: TextStyle(fontSize: 24, color: Colors.orange)),
-              trailing: const Icon(Icons.trending_up, color: Colors.green),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            alignment: WrapAlignment.spaceEvenly,
-            children: [
-              _statCard("Số con", "3", Icons.child_care, Colors.blue),
-              _statCard("Việc giao", "24", Icons.assignment, Colors.green),
-              _statCard("Hoàn thành", "18", Icons.check_circle, Colors.orange),
-              _statCard("Tỷ lệ", "75%", Icons.trending_up, Colors.purple),
-            ],
-          ),
-          const SizedBox(height: 30),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Hoạt động gần đây", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 10),
-                  Text("• Bé Na đã nộp minh chứng dọn phòng"),
-                  Text("• Bé Kun hoàn thành học bài Toán"),
-                  Text("• Bé Bi đang chờ duyệt bài tập Tiếng Anh"),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statCard(String title, String value, IconData icon, Color color) {
-    return SizedBox(
-      width: 160,
-      child: Card(
-        elevation: 4,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 40, color: color),
-              const SizedBox(height: 10),
-              Text(value, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: color)),
-              Text(title, style: TextStyle(fontSize: 14, color: Colors.grey[700]), textAlign: TextAlign.center),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Ghi chú
   Widget _buildNotesScreen(String parentUid) {
     return Column(
       children: [
@@ -1039,7 +1109,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     );
   }
 
-  // Quản lý con cái
   Widget _buildChildrenManagement(String parentUid) {
     return Column(
       children: [
@@ -1095,5 +1164,363 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         ),
       ],
     );
+  }
+
+  // ================== BÁO CÁO THỐNG KÊ ĐÃ SỬA HOÀN CHỈNH ==================
+  Widget _buildStatisticsReport(String parentUid) {
+    DateTime now = DateTime.now();
+    DateTime weekStart = now.subtract(Duration(days: now.weekday - 1));
+    Timestamp weekStartTimestamp = Timestamp.fromDate(weekStart);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Báo cáo thống kê tuần này",
+            style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.orange),
+          ),
+          const SizedBox(height: 24),
+
+          FutureBuilder<QuerySnapshot>(
+            future: FirebaseFirestore.instance
+                .collection('users')
+                .where('parentUid', isEqualTo: parentUid)
+                .where('role', isEqualTo: 'child')
+                .get(),
+            builder: (context, childrenSnapshot) {
+              if (!childrenSnapshot.hasData || childrenSnapshot.data!.docs.isEmpty) {
+                return const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Center(
+                      child: Text(
+                        "Chưa có bé nào để thống kê\nTạo tài khoản con trước nhé! 👶",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              final List<String> childUids = childrenSnapshot.data!.docs.map((doc) => doc.id).toList();
+              final List<String> childNames = childrenSnapshot.data!.docs
+                  .map((doc) => (doc.data() as Map<String, dynamic>)['displayName'] as String? ?? 'Không tên')
+                  .toList();
+
+              return StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('tasks')
+                    .where('assignedBy', isEqualTo: parentUid)
+                    .snapshots(),
+                builder: (context, tasksSnapshot) {
+                  if (!tasksSnapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  List<double> assignedSpots = List.filled(childUids.length, 0.0);
+                  List<double> completedSpots = List.filled(childUids.length, 0.0);
+
+                  for (var doc in tasksSnapshot.data!.docs) {
+                    var data = doc.data() as Map<String, dynamic>;
+                    String? assignedTo = data['assignedTo'] as String?;
+                    String status = data['status'] as String? ?? 'pending';
+
+                    int index = childUids.indexOf(assignedTo ?? '');
+                    if (index != -1) {
+                      assignedSpots[index]++;
+                      if (status == 'approved') {
+                        completedSpots[index]++;
+                      }
+                    }
+                  }
+
+                  double maxAssigned = assignedSpots.isEmpty ? 1 : assignedSpots.reduce((a, b) => a > b ? a : b);
+                  double maxY = (maxAssigned + 2).ceilToDouble();
+
+                  return Card(
+                    elevation: 8,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Việc được giao & hoàn thành theo bé",
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: 340,
+                            child: BarChart(
+                              BarChartData(
+                                alignment: BarChartAlignment.spaceAround,
+                                maxY: maxY,
+                                barTouchData: BarTouchData(enabled: true),
+                                titlesData: FlTitlesData(
+                                  show: true,
+                                  leftTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      reservedSize: 40,
+                                      getTitlesWidget: (value, meta) {
+                                        return Text(
+                                          value.toInt().toString(),
+                                          style: const TextStyle(fontSize: 12),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  bottomTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      reservedSize: 70, // Tăng để tên dài không bị cắt
+                                      getTitlesWidget: (value, meta) {
+                                        int index = value.toInt();
+                                        if (index < 0 || index >= childNames.length) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return SideTitleWidget(
+                                          meta: meta, // Đây là tham số đúng ở phiên bản 0.70+
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(top: 8),
+                                            child: Text(
+                                              childNames[index],
+                                              style: const TextStyle(fontSize: 11),
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 2,
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                  rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                ),
+                                gridData: FlGridData(show: true),
+                                borderData: FlBorderData(show: false),
+                                barGroups: List.generate(childUids.length, (i) {
+                                  return BarChartGroupData(
+                                    x: i,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY: assignedSpots[i],
+                                        color: Colors.orange[400],
+                                        width: 18,
+                                        borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                                      ),
+                                      BarChartRodData(
+                                        toY: completedSpots[i],
+                                        color: Colors.green[600],
+                                        width: 18,
+                                        borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                                      ),
+                                    ],
+                                    barsSpace: 10,
+                                  );
+                                }),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _legendItem(Colors.orange[400]!, "Đã giao"),
+                              const SizedBox(width: 30),
+                              _legendItem(Colors.green[600]!, "Hoàn thành"),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+
+          const SizedBox(height: 30),
+
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('logins')
+                .where('timestamp', isGreaterThanOrEqualTo: weekStartTimestamp)
+                .snapshots(),
+            builder: (context, loginSnapshot) {
+              int totalLogins = loginSnapshot.hasData ? loginSnapshot.data!.docs.length : 0;
+
+              return Card(
+                elevation: 8,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      const Text("Tổng lượt truy cập tuần này", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 20),
+                      Text(
+                        totalLogins.toString(),
+                        style: const TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: Colors.purple),
+                      ),
+                      const Text("Cả bố mẹ và các bé", style: TextStyle(color: Colors.grey, fontSize: 16)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendItem(Color color, String text) {
+    return Row(
+      children: [
+        Container(
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4)),
+        ),
+        const SizedBox(width: 10),
+        Text(text, style: const TextStyle(fontSize: 16)),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (currentUser == null) return const Scaffold(body: Center(child: Text("Lỗi đăng nhập")));
+
+    return Scaffold(
+      key: _scaffoldKey,
+      appBar: AppBar(
+        title: Text(_titles[_selectedIndex]),
+        backgroundColor: Colors.orange,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => _confirmLogout(context),
+          ),
+        ],
+      ),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Colors.orange),
+              child: StreamBuilder<DocumentSnapshot>(
+                stream: FirebaseFirestore.instance.collection('users').doc(currentUser!.uid).snapshots(),
+                builder: (context, snapshot) {
+                  final name = snapshot.data?['displayName'] ?? "Phụ huynh";
+                  return Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const CircleAvatar(
+                        radius: 30,
+                        backgroundColor: Colors.white,
+                        child: Icon(Icons.person, size: 40, color: Colors.orange),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text("Xin chào,", style: TextStyle(color: Colors.white70, fontSize: 14)),
+                      const SizedBox(height: 4),
+                      Flexible(
+                        child: Text(
+                          name,
+                          style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            ..._titles.asMap().entries.map((entry) {
+              int idx = entry.key;
+              String title = entry.value;
+              IconData icon = [
+                Icons.dashboard,
+                Icons.child_care,
+                Icons.assignment,
+                Icons.card_giftcard_rounded,
+                Icons.bar_chart,
+                Icons.calendar_month,
+                Icons.note_alt,
+              ][idx];
+              return ListTile(
+                leading: Icon(icon),
+                title: Text(title),
+                selected: _selectedIndex == idx,
+                selectedTileColor: Colors.orange[100],
+                onTap: () {
+                  if (idx == 4) {
+                    _reauthenticateParent(context).then((ok) {
+                      if (ok) {
+                        setState(() => _selectedIndex = idx);
+                        Navigator.pop(context);
+                      }
+                    });
+                  } else {
+                    setState(() => _selectedIndex = idx);
+                    Navigator.pop(context);
+                  }
+                },
+              );
+            }).toList(),
+          ],
+        ),
+      ),
+      body: _buildBody(currentUser!.uid),
+      floatingActionButton: _selectedIndex == 2
+          ? FloatingActionButton(
+              backgroundColor: Colors.orange,
+              child: const Icon(Icons.add_task, color: Colors.white),
+              onPressed: () => _assignTask(context, currentUser!.uid),
+            )
+          : _selectedIndex == 3
+              ? FloatingActionButton(
+                  backgroundColor: Colors.orange,
+                  child: const Icon(Icons.add, color: Colors.white),
+                  onPressed: () => _addOrEditReward(),
+                )
+              : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+    );
+  }
+
+  Widget _buildBody(String parentUid) {
+    switch (_selectedIndex) {
+      case 0:
+        return _buildOverview();
+      case 1:
+        return _buildChildrenManagement(parentUid);
+      case 2:
+        return _buildAssignTaskScreen(parentUid);
+      case 3:
+        return _buildRewardsManagement();
+      case 4:
+        return _buildStatisticsReport(parentUid);
+      case 5:
+        return const Center(child: Text("Quản lý lịch và nhắc hẹn\n(Sắp có)", style: TextStyle(fontSize: 18)));
+      case 6:
+        return _buildNotesScreen(parentUid);
+      default:
+        return const SizedBox();
+    }
   }
 }
