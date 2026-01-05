@@ -795,8 +795,9 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   Widget _buildOverview() {
     final String parentUid = currentUser!.uid;
 
-    DateTime weekStart = DateTime.now().subtract(Duration(days: DateTime.now().weekday - 1));
-    Timestamp weekStartTimestamp = Timestamp.fromDate(weekStart);
+    DateTime now = DateTime.now();
+    DateTime weekStart = now.subtract(Duration(days: now.weekday - 1));
+    weekStart = DateTime(weekStart.year, weekStart.month, weekStart.day);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -841,32 +842,25 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('logins')
-                .where('timestamp', isGreaterThanOrEqualTo: weekStartTimestamp)
+                .where('userUid', isEqualTo: parentUid)
                 .snapshots(),
             builder: (context, loginSnapshot) {
-              return FutureBuilder<List<String>>(
-                future: FirebaseFirestore.instance
-                    .collection('users')
-                    .where('parentUid', isEqualTo: parentUid)
-                    .where('role', isEqualTo: 'child')
-                    .get()
-                    .then((snap) => snap.docs.map((doc) => doc.id).toList()),
-                builder: (context, childUidsSnapshot) {
-                  List<String> childUids = childUidsSnapshot.data ?? [];
+              if (!loginSnapshot.hasData) {
+                return _statCard("Lượt truy cập tuần này", "0", Icons.login, Colors.purple);
+              }
 
-                  int loginCount = 0;
-                  if (loginSnapshot.hasData) {
-                    for (var doc in loginSnapshot.data!.docs) {
-                      String uid = doc['userUid'];
-                      if (uid == parentUid || childUids.contains(uid)) {
-                        loginCount++;
-                      }
-                    }
+              int loginCount = 0;
+              for (var doc in loginSnapshot.data!.docs) {
+                Timestamp? ts = doc['timestamp'] as Timestamp?;
+                if (ts != null) {
+                  DateTime loginDate = ts.toDate();
+                  if (loginDate.isAfter(weekStart.subtract(const Duration(days: 1)))) {
+                    loginCount++;
                   }
+                }
+              }
 
-                  return _statCard("Lượt truy cập tuần này", loginCount.toString(), Icons.login, Colors.purple);
-                },
-              );
+              return _statCard("Lượt truy cập tuần này", loginCount.toString(), Icons.login, Colors.purple);
             },
           ),
           const SizedBox(height: 30),
@@ -1166,7 +1160,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     );
   }
 
-  // ================== BÁO CÁO THỐNG KÊ ĐÃ SỬA HOÀN CHỈNH ==================
   Widget _buildStatisticsReport(String parentUid) {
     DateTime now = DateTime.now();
     DateTime weekStart = now.subtract(Duration(days: now.weekday - 1));
@@ -1277,14 +1270,14 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                                   bottomTitles: AxisTitles(
                                     sideTitles: SideTitles(
                                       showTitles: true,
-                                      reservedSize: 70, // Tăng để tên dài không bị cắt
+                                      reservedSize: 70,
                                       getTitlesWidget: (value, meta) {
                                         int index = value.toInt();
                                         if (index < 0 || index >= childNames.length) {
                                           return const SizedBox.shrink();
                                         }
                                         return SideTitleWidget(
-                                          meta: meta, // Đây là tham số đúng ở phiên bản 0.70+
+                                          meta: meta,
                                           child: Padding(
                                             padding: const EdgeInsets.only(top: 8),
                                             child: Text(
@@ -1299,10 +1292,10 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                                       },
                                     ),
                                   ),
-                                  topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                                  rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                                 ),
-                                gridData: FlGridData(show: true),
+                                gridData: const FlGridData(show: true),
                                 borderData: FlBorderData(show: false),
                                 barGroups: List.generate(childUids.length, (i) {
                                   return BarChartGroupData(
@@ -1372,6 +1365,138 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                     ],
                   ),
                 ),
+              );
+            },
+          ),
+
+          const SizedBox(height: 30),
+
+          FutureBuilder<QuerySnapshot>(
+            future: FirebaseFirestore.instance
+                .collection('users')
+                .where('parentUid', isEqualTo: parentUid)
+                .where('role', isEqualTo: 'child')
+                .get(),
+            builder: (context, childrenSnapshot) {
+              if (!childrenSnapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final List<String> childUids = childrenSnapshot.data!.docs.map((doc) => doc.id).toList();
+
+              return StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('logins')
+                    .where('timestamp', isGreaterThanOrEqualTo: weekStartTimestamp)
+                    .snapshots(),
+                builder: (context, loginSnapshot) {
+                  if (!loginSnapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  int parentLoginCount = 0;
+                  int childrenLoginCount = 0;
+
+                  for (var doc in loginSnapshot.data!.docs) {
+                    String uid = doc['userUid'];
+                    if (uid == parentUid) {
+                      parentLoginCount++;
+                    } else if (childUids.contains(uid)) {
+                      childrenLoginCount++;
+                    }
+                  }
+
+                  double maxY = [parentLoginCount, childrenLoginCount].reduce((a, b) => a > b ? a : b).toDouble() + 2;
+
+                  return Card(
+                    elevation: 8,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Lượt truy cập tuần này theo vai trò",
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            height: 300,
+                            child: BarChart(
+                              BarChartData(
+                                alignment: BarChartAlignment.spaceAround,
+                                maxY: maxY,
+                                barTouchData: BarTouchData(enabled: true),
+                                titlesData: FlTitlesData(
+                                  show: true,
+                                  bottomTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      getTitlesWidget: (value, meta) {
+                                        final titles = ['Phụ huynh', 'Các con'];
+                                        int index = value.toInt();
+                                        if (index < 0 || index >= titles.length) return const SizedBox();
+                                        return SideTitleWidget(
+                                          meta: meta,
+                                          child: Text(titles[index], style: const TextStyle(fontSize: 14)),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  leftTitles: AxisTitles(
+                                    sideTitles: SideTitles(
+                                      showTitles: true,
+                                      reservedSize: 40,
+                                      getTitlesWidget: (value, meta) => Text(value.toInt().toString(), style: const TextStyle(fontSize: 12)),
+                                    ),
+                                  ),
+                                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                ),
+                                gridData: const FlGridData(show: true),
+                                borderData: FlBorderData(show: false),
+                                barGroups: [
+                                  BarChartGroupData(
+                                    x: 0,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY: parentLoginCount.toDouble(),
+                                        color: Colors.orange[600],
+                                        width: 40,
+                                        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                                      ),
+                                    ],
+                                  ),
+                                  BarChartGroupData(
+                                    x: 1,
+                                    barRods: [
+                                      BarChartRodData(
+                                        toY: childrenLoginCount.toDouble(),
+                                        color: Colors.green[600],
+                                        width: 40,
+                                        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _legendItem(Colors.orange[600]!, "Phụ huynh"),
+                              const SizedBox(width: 40),
+                              _legendItem(Colors.green[600]!, "Các con"),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               );
             },
           ),

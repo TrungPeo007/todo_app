@@ -116,7 +116,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   controller: displayNameController,
                   decoration: const InputDecoration(
                     labelText: "Tên hiển thị",
-                    hintText: "Ví dụ: Bố Trung , Con Minh Long",
+                    hintText: "Tên PH , HS ",
                     prefixIcon: Icon(Icons.person, color: Colors.orange),
                     border: OutlineInputBorder(),
                   ),

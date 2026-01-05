@@ -27,7 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadUserRoleAndName();
-    _logLogin(); // Vẫn giữ để ghi log (nếu sau này cần dùng lại)
+    _logLogin();
   }
 
   Future<void> _logLogin() async {
@@ -246,7 +246,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ==================== TỔNG QUAN ĐÃ BỎ "LƯỢT TRUY CẬP" ====================
+  // ==================== TỔNG QUAN ====================
   Widget _buildChildOverview() {
     final String uid = currentUser!.uid;
 
@@ -260,7 +260,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // Việc được giao & hoàn thành
           StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('tasks').where('assignedTo', isEqualTo: uid).snapshots(),
+            stream: FirebaseFirestore.instance
+                .collection('tasks')
+                .where('assignedTo', isEqualTo: uid)
+                .snapshots(includeMetadataChanges: true),
             builder: (context, taskSnapshot) {
               if (!taskSnapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
@@ -284,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 30),
 
-          // Điểm thưởng & cấp độ
+          // Điểm thưởng hiện tại
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance.collection('users').doc(uid).collection('experience').doc(uid).snapshots(),
             builder: (context, expSnapshot) {
@@ -299,7 +302,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               }
               var data = expSnapshot.data!.data() as Map<String, dynamic>;
-              int level = data['level'] ?? 1;
               int xpCurrent = data['xpCurrent'] ?? 0;
               int xpRequired = data['xpRequired'] ?? 100;
 
@@ -310,19 +312,29 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      const Text("Điểm thưởng hiện tại", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange)),
-                      const SizedBox(height: 16),
-                      Text("Cấp độ $level", style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Colors.orange)),
-                      const SizedBox(height: 20),
+                      const Text(
+                        "Điểm thưởng hiện tại",
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.orange),
+                      ),
+                      const SizedBox(height: 30),
                       LinearProgressIndicator(
                         value: xpCurrent / xpRequired,
-                        minHeight: 20,
+                        minHeight: 30,
                         backgroundColor: Colors.grey[300],
                         valueColor: const AlwaysStoppedAnimation(Colors.amber),
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(15),
                       ),
-                      const SizedBox(height: 12),
-                      Text("$xpCurrent / $xpRequired XP", style: const TextStyle(fontSize: 24)),
+                      const SizedBox(height: 20),
+                      Text(
+                        "$xpCurrent / $xpRequired XP",
+                        style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Colors.orange),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        "Cố lên bé yêu! Hoàn thành việc để nhận thêm sao nhé 🌟",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                      ),
                     ],
                   ),
                 ),
@@ -346,8 +358,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ==================== CÁC PHẦN KHÁC GIỮ NGUYÊN ====================
-
+  // ==================== PHẦN THƯỞNG - ĐÃ FIX REALTIME ====================
   Widget _buildChildRewardsTab() {
     final String uid = currentUser!.uid;
 
@@ -368,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen> {
           stream: FirebaseFirestore.instance
               .collection('rewards')
               .orderBy('points', descending: true)
-              .snapshots(),
+              .snapshots(includeMetadataChanges: true), // ← Dòng duy nhất em thêm để fix realtime phần thưởng
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return const Center(child: Text("Ôi không! Có lỗi rồi 😢"));
@@ -550,12 +561,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // ==================== VIỆC ĐƯỢC GIAO ====================
   Widget _buildTasksTab() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('tasks')
           .where('assignedTo', isEqualTo: currentUser!.uid)
-          .snapshots(),
+          .snapshots(includeMetadataChanges: true),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const Center(child: Text("Ôi không! Có lỗi rồi 😢"));
@@ -774,7 +786,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
   }
-
+  // ==================== TAB ĐIỂM THƯỞNG RIÊNG ====================
   Widget _buildPointsTab() {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
@@ -800,7 +812,6 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         var data = snapshot.data!.data() as Map<String, dynamic>;
-        int level = data['level'] ?? 1;
         int xpCurrent = data['xpCurrent'] ?? 0;
         int xpRequired = data['xpRequired'] ?? 100;
 
@@ -808,34 +819,30 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(32),
           child: Column(
             children: [
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  Icon(Icons.star_rounded, size: 140, color: Colors.amber[300]),
-                  Icon(Icons.star_rounded, size: 100, color: Colors.amber),
-                  Icon(Icons.star_rounded, size: 60, color: Colors.white),
-                ],
+              const Icon(Icons.star_rounded, size: 140, color: Colors.amber),
+              const SizedBox(height: 40),
+              const Text(
+                "Điểm thưởng hiện tại",
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.orange),
               ),
-              const SizedBox(height: 30),
-              Text("Cấp độ $level", style: const TextStyle(fontSize: 44, fontWeight: FontWeight.bold, color: Colors.orange)),
               const SizedBox(height: 40),
               LinearProgressIndicator(
                 value: xpCurrent / xpRequired,
-                minHeight: 30,
+                minHeight: 40,
                 backgroundColor: Colors.grey[200],
                 valueColor: const AlwaysStoppedAnimation(Colors.orange),
-                borderRadius: BorderRadius.circular(15),
+                borderRadius: BorderRadius.circular(20),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 30),
               Text(
                 "$xpCurrent / $xpRequired XP",
-                style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Colors.orange),
+                style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.orange),
               ),
               const SizedBox(height: 50),
               const Text(
                 "Cố lên bé yêu! Hoàn thành việc để nhận thật nhiều sao nhé! 🌟✨",
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 20, color: Colors.black54),
+                style: TextStyle(fontSize: 22, color: Colors.black54),
               ),
             ],
           ),
