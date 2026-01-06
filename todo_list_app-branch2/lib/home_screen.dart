@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:table_calendar/table_calendar.dart';
 import 'dart:io';
 
 import 'screens/parent/parent_home_screen.dart';
@@ -20,14 +21,20 @@ class _HomeScreenState extends State<HomeScreen> {
   String displayName = "Đang tải...";
   String email = "Đang tải...";
   int _selectedIndex = 0;
+  bool _isVietnamese = true;
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  CalendarFormat _calendarFormat = CalendarFormat.month;
+  DateTime _focusedDay = DateTime.now();
+  DateTime? _selectedDay;
 
   @override
   void initState() {
     super.initState();
     _loadUserRoleAndName();
     _logLogin();
+    _selectedDay = _focusedDay;
   }
 
   Future<void> _logLogin() async {
@@ -53,13 +60,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (doc.exists) {
       setState(() {
         role = doc['role'];
-        displayName = doc['displayName'] ?? currentUser!.email ?? "Bé yêu";
+        displayName = doc['displayName'] ?? currentUser!.email ?? (_isVietnamese ? "Bé yêu" : "Little one");
         email = doc['email'] ?? currentUser!.email ?? "";
       });
     } else {
       setState(() {
         role = 'child';
-        displayName = currentUser!.email ?? "Bé yêu";
+        displayName = currentUser!.email ?? (_isVietnamese ? "Bé yêu" : "Little one");
         email = currentUser!.email ?? "";
       });
     }
@@ -70,17 +77,17 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("Đăng xuất", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
-        content: const Text("Bạn có muốn đăng xuất không bé yêu? 😢"),
+        title: Text(_isVietnamese ? "Đăng xuất" : "Logout", style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+        content: Text(_isVietnamese ? "Bạn có muốn đăng xuất không bé yêu? 😢" : "Do you want to log out, sweetie? 😢"),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text("Hủy", style: TextStyle(color: Colors.grey)),
+            child: Text(_isVietnamese ? "Hủy" : "Cancel", style: const TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text("Có, đăng xuất", style: TextStyle(color: Colors.white)),
+            child: Text(_isVietnamese ? "Có, đăng xuất" : "Yes, log out", style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -118,7 +125,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildChildHome() {
-    final List<String> titles = ['Tổng quan', 'Việc được giao', 'Phần thưởng', 'Lịch cá nhân', 'Điểm thưởng'];
+    final List<String> titlesVi = ['Tổng quan', 'Việc được giao', 'Phần thưởng', 'Lịch cá nhân', 'Điểm thưởng'];
+    final List<String> titlesEn = ['Overview', 'Assigned Tasks', 'Rewards', 'Personal Calendar', 'Points'];
+    final List<String> titles = _isVietnamese ? titlesVi : titlesEn;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -134,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       drawer: _buildDrawer(titles),
-      body: _buildChildBody(),
+      body: _buildChildBody(titles),
     );
   }
 
@@ -144,7 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           Container(
             height: 240,
-            color: Colors.white,
+            decoration: const BoxDecoration(color: Colors.white),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -155,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   child: const CircleAvatar(
                     radius: 50,
-                    backgroundColor: Colors.white,
+                    backgroundColor: Colors.transparent,
                     child: Icon(Icons.child_care_rounded, size: 70, color: Colors.orange),
                   ),
                 ),
@@ -182,6 +191,19 @@ class _HomeScreenState extends State<HomeScreen> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
+                ListTile(
+                  leading: const Icon(Icons.language),
+                  title: Text(_isVietnamese ? "Ngôn ngữ: Tiếng Việt" : "Language: English"),
+                  trailing: Switch(
+                    value: !_isVietnamese,
+                    onChanged: (value) {
+                      setState(() {
+                        _isVietnamese = !value;
+                      });
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
                 for (int i = 0; i < titles.length; i++)
                   ListTile(
                     leading: Icon(
@@ -204,7 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const Divider(height: 40, thickness: 1, indent: 20, endIndent: 20),
                 ListTile(
                   leading: const Icon(Icons.logout_rounded, color: Colors.red, size: 28),
-                  title: const Text("Đăng xuất", style: TextStyle(fontSize: 18, color: Colors.red)),
+                  title: Text(_isVietnamese ? "Đăng xuất" : "Logout", style: const TextStyle(fontSize: 18, color: Colors.red)),
                   onTap: () {
                     Navigator.pop(context);
                     _confirmLogout();
@@ -218,7 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildChildBody() {
+  Widget _buildChildBody(List<String> titles) {
     switch (_selectedIndex) {
       case 0:
         return _buildChildOverview();
@@ -227,18 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 2:
         return _buildChildRewardsTab();
       case 3:
-        return const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.event_note_rounded, size: 100, color: Colors.green),
-              SizedBox(height: 20),
-              Text("Lịch cá nhân\n(Sắp có nha bé yêu! 🗓️)", 
-                   textAlign: TextAlign.center, 
-                   style: TextStyle(fontSize: 20, color: Colors.grey)),
-            ],
-          ),
-        );
+        return _buildCalendarTab();
       case 4:
         return _buildPointsTab();
       default:
@@ -246,7 +257,173 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ==================== TỔNG QUAN ====================
+  Widget _buildCalendarTab() {
+    final String uid = currentUser!.uid;
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('tasks')
+          .where('assignedTo', isEqualTo: uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        Map<DateTime, List<Map<String, dynamic>>> events = {};
+
+        if (snapshot.hasData) {
+          for (var doc in snapshot.data!.docs) {
+            var data = doc.data() as Map<String, dynamic>;
+            Timestamp? dueTimestamp = data['dueDate'];
+            if (dueTimestamp != null) {
+              DateTime dueDate = dueTimestamp.toDate();
+              DateTime normalizedDate = DateTime(dueDate.year, dueDate.month, dueDate.day);
+
+              events.putIfAbsent(normalizedDate, () => []);
+              events[normalizedDate]!.add({
+                'id': doc.id,
+                'title': data['title'] ?? (_isVietnamese ? 'Việc gì đó' : 'Some task'),
+                'status': data['status'] ?? 'pending',
+                'rewardXP': data['rewardXP'] ?? 0,
+              });
+            }
+          }
+        }
+
+        return Column(
+          children: [
+            Card(
+              margin: const EdgeInsets.all(16),
+              elevation: 8,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: TableCalendar(
+                locale: _isVietnamese ? 'vi_VN' : 'en_US',
+                firstDay: DateTime.utc(2020, 1, 1),
+                lastDay: DateTime.utc(2030, 12, 31),
+                focusedDay: _focusedDay,
+                calendarFormat: _calendarFormat,
+                selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                onDaySelected: (selectedDay, focusedDay) {
+                  setState(() {
+                    _selectedDay = selectedDay;
+                    _focusedDay = focusedDay;
+                  });
+                },
+                onFormatChanged: (format) {
+                  setState(() {
+                    _calendarFormat = format;
+                  });
+                },
+                onPageChanged: (focusedDay) {
+                  _focusedDay = focusedDay;
+                },
+                eventLoader: (day) {
+                  DateTime normalized = DateTime(day.year, day.month, day.day);
+                  return events[normalized] ?? [];
+                },
+                calendarStyle: const CalendarStyle(
+                  todayDecoration: BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+                  selectedDecoration: BoxDecoration(color: Colors.deepOrange, shape: BoxShape.circle),
+                  markerDecoration: BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+                  markersMaxCount: 4,
+                ),
+                headerStyle: const HeaderStyle(
+                  titleCentered: true,
+                  formatButtonVisible: false,
+                  titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.orange),
+                  leftChevronIcon: Icon(Icons.chevron_left, color: Colors.orange),
+                  rightChevronIcon: Icon(Icons.chevron_right, color: Colors.orange),
+                ),
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                _isVietnamese ? "Việc cần làm hôm nay" : "Tasks for today",
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.orange),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            Expanded(
+              child: _selectedDay == null
+                  ? Center(child: Text(_isVietnamese ? "Chọn một ngày để xem việc nhé bé! 📅" : "Pick a day to see tasks, sweetie! 📅"))
+                  : _buildTasksForSelectedDay(events, _selectedDay!),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTasksForSelectedDay(Map<DateTime, List<Map<String, dynamic>>> events, DateTime selectedDay) {
+    DateTime normalized = DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
+    List<Map<String, dynamic>> dayTasks = events[normalized] ?? [];
+
+    if (dayTasks.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.sentiment_satisfied_alt, size: 80, color: Colors.orange),
+            SizedBox(height: 16),
+            Text(
+              _isVietnamese ? "Hôm nay bé được nghỉ ngơi rồi!\nKhông có việc nào hết á 🌈" : "No tasks today!\nYou can rest, sweetie! 🌈",
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: dayTasks.length,
+      itemBuilder: (context, index) {
+        var task = dayTasks[index];
+        String status = task['status'];
+        Color statusColor = status == 'approved'
+            ? Colors.green
+            : status == 'submitted'
+                ? Colors.blue
+                : status == 'rejected'
+                    ? Colors.red
+                    : Colors.orange;
+
+        String statusText = status == 'approved'
+            ? (_isVietnamese ? "Hoàn thành rồi! 🎉" : "Completed! 🎉")
+            : status == 'submitted'
+                ? (_isVietnamese ? "Đang chờ duyệt" : "Waiting for approval")
+                : status == 'rejected'
+                    ? (_isVietnamese ? "Làm lại nhé!" : "Please redo!")
+                    : (_isVietnamese ? "Chưa làm xong" : "Not done yet");
+
+        return Card(
+          elevation: 6,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: ListTile(
+            leading: Icon(
+              status == 'approved' ? Icons.celebration : Icons.task_alt,
+              color: statusColor,
+              size: 40,
+            ),
+            title: Text(
+              task['title'],
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text("+${task['rewardXP']} XP • $statusText"),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.orange),
+            onTap: () {
+              setState(() => _selectedIndex = 1);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(_isVietnamese ? "Đang mở việc: ${task['title']}" : "Opening task: ${task['title']}")),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildChildOverview() {
     final String uid = currentUser!.uid;
 
@@ -255,10 +432,9 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Tổng quan tuần này bé ơi! 🌟", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.orange)),
+          Text(_isVietnamese ? "Tổng quan tuần này bé ơi! 🌟" : "This week's overview, sweetie! 🌟", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.orange)),
           const SizedBox(height: 20),
 
-          // Việc được giao & hoàn thành
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('tasks')
@@ -275,11 +451,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
               return Column(
                 children: [
-                  _childStatCard("Việc được giao", totalTasks.toString(), Icons.task_alt_rounded, Colors.orange),
+                  _childStatCard(_isVietnamese ? "Việc được giao" : "Assigned tasks", totalTasks.toString(), Icons.task_alt_rounded, Colors.orange),
                   const SizedBox(height: 12),
-                  _childStatCard("Đã hoàn thành", completedTasks.toString(), Icons.celebration, Colors.green),
+                  _childStatCard(_isVietnamese ? "Đã hoàn thành" : "Completed", completedTasks.toString(), Icons.celebration, Colors.green),
                   const SizedBox(height: 12),
-                  _childStatCard("Tỷ lệ hoàn thành", "${completionRate.toStringAsFixed(0)}%", Icons.trending_up_rounded, Colors.blue),
+                  _childStatCard(_isVietnamese ? "Tỷ lệ hoàn thành" : "Completion rate", "${completionRate.toStringAsFixed(0)}%", Icons.trending_up_rounded, Colors.blue),
                 ],
               );
             },
@@ -287,23 +463,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
           const SizedBox(height: 30),
 
-          // Điểm thưởng hiện tại
           StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance.collection('users').doc(uid).collection('experience').doc(uid).snapshots(),
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .doc(uid)
+                .collection('experience')
+                .doc(uid)
+                .snapshots(),
             builder: (context, expSnapshot) {
               if (!expSnapshot.hasData || !expSnapshot.data!.exists) {
                 return Card(
                   elevation: 8,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  child: const Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Text("Chưa có điểm thưởng nào! Làm việc tốt để nhận sao nhé bé 🌟", style: TextStyle(fontSize: 18)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Text(
+                      _isVietnamese ? "Chưa có điểm thưởng nào! Làm việc tốt để nhận sao nhé bé 🌟" : "No points yet! Do good tasks to earn stars! 🌟",
+                      style: const TextStyle(fontSize: 18),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 );
               }
+
               var data = expSnapshot.data!.data() as Map<String, dynamic>;
               int xpCurrent = data['xpCurrent'] ?? 0;
-              int xpRequired = data['xpRequired'] ?? 100;
 
               return Card(
                 elevation: 8,
@@ -312,28 +496,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     children: [
-                      const Text(
-                        "Điểm thưởng hiện tại",
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.orange),
+                      Text(
+                        _isVietnamese ? "Điểm thưởng hiện tại" : "Current points",
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.orange),
                       ),
                       const SizedBox(height: 30),
-                      LinearProgressIndicator(
-                        value: xpCurrent / xpRequired,
-                        minHeight: 30,
-                        backgroundColor: Colors.grey[300],
-                        valueColor: const AlwaysStoppedAnimation(Colors.amber),
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                      const SizedBox(height: 20),
                       Text(
-                        "$xpCurrent / $xpRequired XP",
-                        style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Colors.orange),
+                        "$xpCurrent XP",
+                        style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.orange),
                       ),
                       const SizedBox(height: 16),
-                      const Text(
-                        "Cố lên bé yêu! Hoàn thành việc để nhận thêm sao nhé 🌟",
+                      Text(
+                        _isVietnamese ? "Cố lên bé yêu! Hoàn thành việc để nhận thêm sao nhé 🌟" : "Keep going, sweetie! Complete tasks to earn more stars! 🌟",
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                        style: const TextStyle(fontSize: 16, color: Colors.grey),
                       ),
                     ],
                   ),
@@ -358,7 +534,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ==================== PHẦN THƯỞNG - ĐÃ FIX REALTIME ====================
   Widget _buildChildRewardsTab() {
     final String uid = currentUser!.uid;
 
@@ -379,23 +554,23 @@ class _HomeScreenState extends State<HomeScreen> {
           stream: FirebaseFirestore.instance
               .collection('rewards')
               .orderBy('points', descending: true)
-              .snapshots(includeMetadataChanges: true), // ← Dòng duy nhất em thêm để fix realtime phần thưởng
+              .snapshots(includeMetadataChanges: true),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return const Center(child: Text("Ôi không! Có lỗi rồi 😢"));
+              return Center(child: Text(_isVietnamese ? "Ôi không! Có lỗi rồi 😢" : "Oh no! Something went wrong 😢"));
             }
 
             if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return const Center(
+              return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.card_giftcard_rounded, size: 120, color: Colors.orange),
-                    SizedBox(height: 24),
+                    const Icon(Icons.card_giftcard_rounded, size: 120, color: Colors.orange),
+                    const SizedBox(height: 24),
                     Text(
-                      "Chưa có phần thưởng nào hết!\nHỏi bố mẹ thêm quà đi bé yêu 🎁",
+                      _isVietnamese ? "Chưa có phần thưởng nào hết!\nHỏi bố mẹ thêm quà đi bé yêu 🎁" : "No rewards yet!\nAsk mom/dad to add some gifts, sweetie! 🎁",
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 20, color: Colors.grey),
+                      style: const TextStyle(fontSize: 20, color: Colors.grey),
                     ),
                   ],
                 ),
@@ -409,8 +584,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 var doc = snapshot.data!.docs[index];
                 var data = doc.data() as Map<String, dynamic>;
                 String rewardId = doc.id;
-                String name = data['name'] ?? 'Quà bí mật';
-                String desc = data['description'] ?? 'Không có mô tả';
+                String name = data['name'] ?? (_isVietnamese ? 'Quà bí mật' : 'Mystery gift');
+                String desc = data['description'] ?? (_isVietnamese ? 'Không có mô tả' : 'No description');
                 int points = data['points'] ?? 10;
 
                 bool canExchange = currentXP >= points;
@@ -444,7 +619,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(Icons.star_rounded, color: canExchange ? Colors.amber : Colors.grey),
                             const SizedBox(width: 8),
                             Text(
-                              "Cần $points XP",
+                              _isVietnamese ? "Cần $points XP" : "Need $points XP",
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -485,7 +660,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   const Icon(Icons.star_rounded, color: Colors.amber, size: 30),
                   const SizedBox(width: 10),
-                  Text("Cần: $points XP", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text(_isVietnamese ? "Cần: $points XP" : "Need: $points XP", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 ],
               ),
               const SizedBox(height: 10),
@@ -493,7 +668,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   const Icon(Icons.account_balance_wallet_rounded, color: Colors.green, size: 30),
                   const SizedBox(width: 10),
-                  Text("Bạn có: $currentXP XP", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green)),
+                  Text(_isVietnamese ? "Bạn có: $currentXP XP" : "You have: $currentXP XP", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green)),
                 ],
               ),
               const SizedBox(height: 30),
@@ -501,7 +676,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   icon: Icon(canExchange ? Icons.card_giftcard : Icons.lock, size: 24),
-                  label: Text(canExchange ? "Đổi phần thưởng" : "Chưa đủ điểm", style: const TextStyle(fontSize: 18)),
+                  label: Text(canExchange ? (_isVietnamese ? "Đổi phần thưởng" : "Exchange reward") : (_isVietnamese ? "Chưa đủ điểm" : "Not enough points"), style: const TextStyle(fontSize: 18)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: canExchange ? Colors.orange : Colors.grey,
                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -521,7 +696,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Đóng", style: TextStyle(fontSize: 18, color: Colors.orange)),
+            child: Text(_isVietnamese ? "Đóng" : "Close", style: const TextStyle(fontSize: 18, color: Colors.orange)),
           ),
         ],
       ),
@@ -549,19 +724,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Đổi thưởng thành công! Bé giỏi quá! 🎉")),
+          SnackBar(content: Text(_isVietnamese ? "Đổi thưởng thành công! Bé giỏi quá! 🎉" : "Reward exchanged successfully! Great job! 🎉")),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Lỗi đổi thưởng: $e")),
+          SnackBar(content: Text(_isVietnamese ? "Lỗi đổi thưởng: $e" : "Exchange error: $e")),
         );
       }
     }
   }
 
-  // ==================== VIỆC ĐƯỢC GIAO ====================
   Widget _buildTasksTab() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -570,20 +744,20 @@ class _HomeScreenState extends State<HomeScreen> {
           .snapshots(includeMetadataChanges: true),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const Center(child: Text("Ôi không! Có lỗi rồi 😢"));
+          return Center(child: Text(_isVietnamese ? "Ôi không! Có lỗi rồi 😢" : "Oh no! Something went wrong 😢"));
         }
 
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(
+          return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.sentiment_satisfied_alt, size: 100, color: Colors.orange),
-                SizedBox(height: 20),
+                const Icon(Icons.sentiment_satisfied_alt, size: 100, color: Colors.orange),
+                const SizedBox(height: 20),
                 Text(
-                  "Chưa có việc nào hết!\nHỏi bố mẹ xem có việc gì làm không nhé! 😊",
+                  _isVietnamese ? "Chưa có việc nào hết!\nHỏi bố mẹ xem có việc gì làm không nhé! 😊" : "No tasks yet!\nAsk mom/dad if there's anything to do! 😊",
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 20, color: Colors.grey),
+                  style: const TextStyle(fontSize: 20, color: Colors.grey),
                 ),
               ],
             ),
@@ -604,33 +778,33 @@ class _HomeScreenState extends State<HomeScreen> {
             var doc = docs[index];
             var data = doc.data() as Map<String, dynamic>;
             String taskId = doc.id;
-            String title = data['title'] ?? 'Việc vui';
+            String title = data['title'] ?? (_isVietnamese ? 'Việc vui' : 'Fun task');
             String desc = data['description'] ?? '';
             String status = data['status'] ?? 'pending';
             int reward = data['rewardXP'] ?? 0;
             Timestamp? dueTimestamp = data['dueDate'];
             String dueDate = dueTimestamp != null
-                ? "Hạn: ${dueTimestamp.toDate().toLocal().day}/${dueTimestamp.toDate().toLocal().month}"
-                : "Không gấp lắm đâu!";
+                ? "${_isVietnamese ? "Hạn" : "Due"}: ${dueTimestamp.toDate().toLocal().day}/${dueTimestamp.toDate().toLocal().month}"
+                : (_isVietnamese ? "Không gấp lắm đâu!" : "No rush!");
 
             Color statusColor = Colors.orange;
-            String statusText = "Chưa làm xong";
+            String statusText = _isVietnamese ? "Chưa làm xong" : "Not done yet";
             IconData statusIcon = Icons.hourglass_bottom;
 
             switch (status) {
               case 'submitted':
                 statusColor = Colors.blue;
-                statusText = "Đã báo xong!";
+                statusText = _isVietnamese ? "Đã báo xong!" : "Reported!";
                 statusIcon = Icons.check_circle_outline;
                 break;
               case 'approved':
                 statusColor = Colors.green;
-                statusText = "Hoàn thành rồi! 🎉";
+                statusText = _isVietnamese ? "Hoàn thành rồi! 🎉" : "Completed! 🎉";
                 statusIcon = Icons.celebration;
                 break;
               case 'rejected':
                 statusColor = Colors.red;
-                statusText = "Làm lại nhé!";
+                statusText = _isVietnamese ? "Làm lại nhé!" : "Please redo!";
                 statusIcon = Icons.refresh;
                 break;
             }
@@ -652,7 +826,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Icon(Icons.card_giftcard_rounded, color: Colors.orange, size: 28),
+                        const Icon(Icons.card_giftcard_rounded, color: Colors.orange, size: 28),
                         const SizedBox(width: 8),
                         Text("+$reward XP", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.orange)),
                         const Spacer(),
@@ -673,7 +847,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Expanded(
                               child: ElevatedButton.icon(
                                 icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
-                                label: const Text("Làm xong rồi!", style: TextStyle(fontSize: 15)),
+                                label: Text(_isVietnamese ? "Làm xong rồi!" : "I'm done!", style: const TextStyle(fontSize: 15)),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green[600],
                                   foregroundColor: Colors.white,
@@ -721,13 +895,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Bé báo xong rồi! Chờ bố mẹ duyệt nhé 🌟")),
+          SnackBar(content: Text(_isVietnamese ? "Bé báo xong rồi! Chờ bố mẹ duyệt nhé 🌟" : "Reported! Waiting for parent's approval 🌟")),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Ôi không, lỗi rồi: $e")),
+          SnackBar(content: Text(_isVietnamese ? "Ôi không, lỗi rồi: $e" : "Oh no, error: $e")),
         );
       }
     }
@@ -738,14 +912,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
 
     if (pickedFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bé chưa chọn ảnh nè 😅")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_isVietnamese ? "Bé chưa chọn ảnh nè 😅" : "No photo selected 😅")));
       return;
     }
 
     String path = pickedFile.path.toLowerCase();
     if (!path.endsWith('.jpg') && !path.endsWith('.jpeg') && !path.endsWith('.png')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Chỉ được chọn ảnh .jpg hoặc .png thôi nha bé! 📸")),
+        SnackBar(content: Text(_isVietnamese ? "Chỉ được chọn ảnh .jpg hoặc .png thôi nha bé! 📸" : "Only .jpg or .png photos allowed! 📸")),
       );
       return;
     }
@@ -754,18 +928,21 @@ class _HomeScreenState extends State<HomeScreen> {
     int fileSizeInBytes = await file.length();
     if (fileSizeInBytes > 5 * 1024 * 1024) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Ảnh to quá rồi! Chọn ảnh nhỏ hơn 5MB nhé bé ❤️")),
+        SnackBar(content: Text(_isVietnamese ? "Ảnh to quá rồi! Chọn ảnh nhỏ hơn 5MB nhé bé ❤️" : "Photo too big! Choose under 5MB ❤️")),
       );
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đang gửi ảnh cho bố mẹ xem... 📤")));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_isVietnamese ? "Đang gửi ảnh cho bố mẹ xem... 📤" : "Sending photo... 📤")));
 
     try {
       String fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
       Reference ref = FirebaseStorage.instance.ref().child('evidences/$taskId/$fileName');
-      await ref.putFile(file);
-      String url = await ref.getDownloadURL();
+
+      UploadTask uploadTask = ref.putFile(file);
+      TaskSnapshot taskSnapshot = await uploadTask;
+
+      String url = await taskSnapshot.ref.getDownloadURL();
 
       await FirebaseFirestore.instance.collection('tasks').doc(taskId).collection('evidences').add({
         'url': url,
@@ -777,16 +954,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Gửi ảnh thành công rồi! Bé giỏi quá! 🌟")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_isVietnamese ? "Gửi ảnh thành công rồi! Bé giỏi quá! 🌟" : "Photo sent successfully! Great job! 🌟")));
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ôi không, lỗi rồi: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_isVietnamese ? "Ôi không, lỗi rồi: $e" : "Oh no, error: $e")));
       }
     }
   }
-  // ==================== TAB ĐIỂM THƯỞNG RIÊNG ====================
+
   Widget _buildPointsTab() {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance
@@ -797,15 +974,15 @@ class _HomeScreenState extends State<HomeScreen> {
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData || !snapshot.data!.exists) {
-          return const Center(
+          return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.star_border_rounded, size: 120, color: Colors.orange),
-                SizedBox(height: 24),
-                Text("Chưa có điểm nào hết!\nLàm việc tốt để nhận sao nhé bé! 🌟", 
-                     textAlign: TextAlign.center, 
-                     style: TextStyle(fontSize: 20, color: Colors.grey)),
+                const Icon(Icons.star_border_rounded, size: 120, color: Colors.orange),
+                const SizedBox(height: 24),
+                Text(_isVietnamese ? "Chưa có điểm nào hết!\nLàm việc tốt để nhận sao nhé bé! 🌟" : "No points yet!\nDo good tasks to earn stars! 🌟",
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 20, color: Colors.grey)),
               ],
             ),
           );
@@ -813,7 +990,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
         var data = snapshot.data!.data() as Map<String, dynamic>;
         int xpCurrent = data['xpCurrent'] ?? 0;
-        int xpRequired = data['xpRequired'] ?? 100;
 
         return Padding(
           padding: const EdgeInsets.all(32),
@@ -821,28 +997,20 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               const Icon(Icons.star_rounded, size: 140, color: Colors.amber),
               const SizedBox(height: 40),
-              const Text(
-                "Điểm thưởng hiện tại",
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.orange),
+              Text(
+                _isVietnamese ? "Điểm thưởng hiện tại" : "Current points",
+                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.orange),
               ),
               const SizedBox(height: 40),
-              LinearProgressIndicator(
-                value: xpCurrent / xpRequired,
-                minHeight: 40,
-                backgroundColor: Colors.grey[200],
-                valueColor: const AlwaysStoppedAnimation(Colors.orange),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              const SizedBox(height: 30),
               Text(
-                "$xpCurrent / $xpRequired XP",
-                style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.orange),
+                "$xpCurrent XP",
+                style: const TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: Colors.orange),
               ),
               const SizedBox(height: 50),
-              const Text(
-                "Cố lên bé yêu! Hoàn thành việc để nhận thật nhiều sao nhé! 🌟✨",
+              Text(
+                _isVietnamese ? "Cố lên bé yêu! Hoàn thành việc để nhận thật nhiều sao nhé! 🌟✨" : "Keep going! Complete tasks to earn lots of stars! 🌟✨",
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 22, color: Colors.black54),
+                style: const TextStyle(fontSize: 22, color: Colors.black54),
               ),
             ],
           ),
