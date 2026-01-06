@@ -36,16 +36,12 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     'Notes',
   ];
   List<String> get _titles => _isVietnamese ? _titlesVi : _titlesEn;
-
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final User? currentUser = FirebaseAuth.instance.currentUser;
-
   CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
-
   bool _isVietnamese = true;
-
   late StreamSubscription<QuerySnapshot> _taskSubscription;
 
   @override
@@ -80,12 +76,13 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         if (change.type == DocumentChangeType.modified) {
           var data = change.doc.data() as Map<String, dynamic>?;
           if (data != null && data['status'] == 'submitted') {
-            var oldData = change.oldIndex != -1 ? snapshot.docs[change.oldIndex].data() : null;
+            var oldData = change.oldIndex != -1
+                ? snapshot.docs[change.oldIndex].data()
+                : null;
             if (oldData is Map<String, dynamic> && oldData['status'] != 'submitted') {
               String title = data['title'] ?? 'việc';
               bool isAll = data['isAll'] == true;
               String assignedTo = data['assignedTo'];
-
               if (isAll) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -116,7 +113,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   Future<bool> _reauthenticateParent(BuildContext context) async {
     final passwordController = TextEditingController();
     if (currentUser == null) return false;
-
     bool? result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -166,23 +162,19 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         .where('parentUid', isEqualTo: parentUid)
         .where('role', isEqualTo: 'child')
         .get();
-
     if (childrenSnapshot.docs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_isVietnamese ? "Chưa có con nào để giao việc" : "No children to assign tasks")),
       );
       return;
     }
-
     final rewardsSnapshot = await FirebaseFirestore.instance.collection('rewards').get();
-
     List<String> selectedChildUids = [];
     bool assignToAll = false;
     String? selectedRewardId;
     final titleController = TextEditingController();
     final descController = TextEditingController();
     DateTime? dueDate;
-
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -237,7 +229,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                   decoration: InputDecoration(labelText: _isVietnamese ? "Chọn phần thưởng" : "Select reward"),
                   hint: Text(_isVietnamese ? "Không chọn (mặc định 10 XP)" : "No selection (default 10 XP)"),
                   items: rewardsSnapshot.docs.map((doc) {
-                    var data = doc.data();
+                    var data = doc.data() as Map<String, dynamic>;
                     return DropdownMenuItem(
                       value: doc.id,
                       child: Text("${data['name']} (${data['points']} XP)"),
@@ -276,14 +268,12 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
               onPressed: () async {
                 bool isAll = assignToAll || selectedChildUids.length == childrenSnapshot.docs.length;
                 List<String> targets = isAll ? childrenSnapshot.docs.map((e) => e.id).toList() : selectedChildUids;
-
                 if (targets.isEmpty || titleController.text.trim().isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text(_isVietnamese ? "Vui lòng chọn ít nhất 1 bé và nhập tiêu đề" : "Please select at least one child and enter title")),
                   );
                   return;
                 }
-
                 int rewardXP = 10;
                 String? rewardId;
                 if (selectedRewardId != null) {
@@ -291,9 +281,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                   rewardXP = rewardDoc['points'] ?? 10;
                   rewardId = selectedRewardId;
                 }
-
                 WriteBatch batch = FirebaseFirestore.instance.batch();
-
                 for (String childUid in targets) {
                   DocumentReference taskRef = FirebaseFirestore.instance.collection('tasks').doc();
                   batch.set(taskRef, {
@@ -309,7 +297,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                     'dueDate': dueDate != null ? Timestamp.fromDate(dueDate!) : null,
                   });
                 }
-
                 try {
                   await batch.commit();
                   Navigator.pop(context);
@@ -332,7 +319,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     final nameController = TextEditingController();
     final emailController = TextEditingController();
     final passwordController = TextEditingController();
-
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -402,7 +388,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   Future<void> _editChild(BuildContext context, String childUid, String currentName, String currentEmail) async {
     final nameController = TextEditingController(text: currentName);
     final emailController = TextEditingController(text: currentEmail);
-
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -466,14 +451,10 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
               TextButton(onPressed: () => Navigator.pop(context, true), child: Text(_isVietnamese ? "Xóa" : "Delete", style: TextStyle(color: Colors.red))),
             ],
           ),
-        ) ??
-        false;
-
+        ) ?? false;
     if (!confirmed) return;
-
     bool reauth = await _reauthenticateParent(context);
     if (!reauth) return;
-
     try {
       await FirebaseFirestore.instance.collection('users').doc(childUid).delete();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_isVietnamese ? "Đã xóa $childName thành công" : "Successfully deleted $childName")));
@@ -494,7 +475,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         ],
       ),
     );
-
     if (confirm == true) {
       await FirebaseAuth.instance.signOut();
     }
@@ -539,6 +519,28 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     await FirebaseFirestore.instance.collection('notes').doc(noteId).delete();
   }
 
+  String _formatTimestamp(Timestamp timestamp) {
+    DateTime date = timestamp.toDate();
+    DateTime now = DateTime.now();
+    DateTime today = DateTime(now.year, now.month, now.day);
+    DateTime yesterday = today.subtract(const Duration(days: 1));
+    DateTime dateDay = DateTime(date.year, date.month, date.day);
+
+    String time = "${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}";
+
+    if (dateDay == today) {
+      return _isVietnamese ? "Hôm nay, $time" : "Today, $time";
+    } else if (dateDay == yesterday) {
+      return _isVietnamese ? "Hôm qua, $time" : "Yesterday, $time";
+    } else {
+      String day = date.day.toString().padLeft(2, '0');
+      String month = date.month.toString().padLeft(2, '0');
+      return _isVietnamese
+          ? "$day/$month/${date.year}, $time"
+          : "$month/$day/${date.year}, $time";
+    }
+  }
+
   void _showTaskDetailForParent(BuildContext context, String taskId, Map<String, dynamic> taskData, String childName) {
     String title = taskData['title'] ?? '';
     String desc = taskData['description'] ?? '';
@@ -548,7 +550,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     String dueDate = dueTimestamp != null
         ? dueTimestamp.toDate().toLocal().toString().split(' ')[0]
         : (_isVietnamese ? "Không có hạn" : "No deadline");
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -788,7 +789,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     final nameController = TextEditingController(text: initialData?['name'] ?? '');
     final descController = TextEditingController(text: initialData?['description'] ?? '');
     final pointsController = TextEditingController(text: initialData?['points']?.toString() ?? '10');
-
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -877,7 +877,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     DateTime now = DateTime.now();
     DateTime weekStart = now.subtract(Duration(days: now.weekday - 1));
     weekStart = DateTime(weekStart.year, weekStart.month, weekStart.day);
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1034,10 +1033,8 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
                   String dueDate = dueTimestamp != null
                       ? dueTimestamp.toDate().toLocal().toString().split(' ')[0]
                       : (_isVietnamese ? "Không có hạn" : "No deadline");
-
                   bool isAll = data['isAll'] == true;
                   String assignedTo = data['assignedTo'];
-
                   return FutureBuilder<DocumentSnapshot>(
                     future: isAll ? null : FirebaseFirestore.instance.collection('users').doc(assignedTo).get(),
                     builder: (context, childSnapshot) {
@@ -1169,7 +1166,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
     DateTime now = DateTime.now();
     DateTime weekStart = now.subtract(Duration(days: now.weekday - 1));
     Timestamp weekStartTimestamp = Timestamp.fromDate(weekStart);
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1406,27 +1402,60 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
               }
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                 return Center(
-                  child: Text(_isVietnamese ? "Chưa có ghi chú nào\nNhấn nút + để thêm nhé!" : "No notes yet\nTap + to add!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                  child: Text(
+                    _isVietnamese
+                        ? "Chưa có ghi chú nào\nNhấn nút + để thêm nhé!"
+                        : "No notes yet\nTap + to add!",
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey, fontSize: 18),
+                  ),
                 );
               }
+
               return ListView.builder(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: snapshot.data!.docs.length,
                 itemBuilder: (context, index) {
                   var doc = snapshot.data!.docs[index];
                   String noteId = doc.id;
-                  String content = doc['content'] ?? '';
+                  String content = (doc['content'] as String?) ?? '(Không có nội dung)';
+
+                  Timestamp? timestamp = doc['createdAt'] as Timestamp?;
+                  String timeString = timestamp != null
+                      ? _formatTimestamp(timestamp)
+                      : (_isVietnamese ? "Không rõ thời gian" : "Unknown time");
+
                   return Dismissible(
                     key: Key(noteId),
                     direction: DismissDirection.endToStart,
-                    background: Container(color: Colors.red, alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20), child: const Icon(Icons.delete, color: Colors.white)),
+                    background: Container(
+                      color: Colors.red,
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      child: const Icon(Icons.delete, color: Colors.white),
+                    ),
                     onDismissed: (_) => _deleteNote(noteId),
                     child: Card(
                       margin: const EdgeInsets.symmetric(vertical: 6),
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       child: ListTile(
-                        leading: const Icon(Icons.note, color: Colors.orange),
-                        title: Text(content, style: const TextStyle(fontSize: 16)),
-                        trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteNote(noteId)),
+                        leading: const Icon(Icons.note, color: Colors.orange, size: 40),
+                        title: Text(
+                          content,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                        ),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            timeString,
+                            style: const TextStyle(fontSize: 13, color: Colors.grey),
+                          ),
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () => _deleteNote(noteId),
+                        ),
                       ),
                     ),
                   );
@@ -1448,7 +1477,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
       builder: (context, snapshot) {
         Map<DateTime, List<Map<String, dynamic>>> events = {};
         Set<DateTime> overdueDates = {};
-
         if (snapshot.hasData) {
           DateTime now = DateTime.now();
           for (var doc in snapshot.data!.docs) {
@@ -1457,17 +1485,14 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
             if (dueTimestamp != null) {
               DateTime dueDate = dueTimestamp.toDate();
               DateTime normalized = DateTime(dueDate.year, dueDate.month, dueDate.day);
-
               events.putIfAbsent(normalized, () => []);
               events[normalized]!.add(data..['id'] = doc.id);
-
               if (data['status'] != 'approved' && dueDate.isBefore(now)) {
                 overdueDates.add(normalized);
               }
             }
           }
         }
-
         return Column(
           children: [
             Card(
@@ -1549,7 +1574,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   Widget _buildParentTasksForDay(Map<DateTime, List<Map<String, dynamic>>> events, DateTime day) {
     DateTime normalized = DateTime(day.year, day.month, day.day);
     List<Map<String, dynamic>> dayTasks = events[normalized] ?? [];
-
     if (dayTasks.isEmpty) {
       return Center(
         child: Column(
@@ -1566,7 +1590,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         ),
       );
     }
-
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: dayTasks.length,
@@ -1577,7 +1600,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
         DateTime? dueDate = dueTimestamp?.toDate();
         bool isOverdue = dueDate != null && dueDate.isBefore(DateTime.now()) && status != 'approved';
         bool isAll = task['isAll'] == true;
-
         return FutureBuilder<List<String>>(
           future: isAll
               ? FirebaseFirestore.instance
@@ -1591,9 +1613,7 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
             String displayName = isAll
                 ? (_isVietnamese ? "Tất cả bé" : "All children")
                 : (nameSnapshot.hasData ? nameSnapshot.data![0] : 'Đang tải...');
-
             Color cardColor = isOverdue ? Colors.red[50]! : Colors.white;
-
             return Card(
               color: cardColor,
               elevation: isOverdue ? 10 : 6,
@@ -1631,7 +1651,6 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
   @override
   Widget build(BuildContext context) {
     if (currentUser == null) return const Scaffold(body: Center(child: Text("Lỗi đăng nhập")));
-
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
